@@ -64,6 +64,20 @@ receipt-kakeibo/
 
 > **品目ごとの種別**：`Category` は「レシート全体のカテゴリ」、品目ごとの種別は `Items_JSON` の `category` に入ります。グラフや月の内訳は、品目の種別ごとの小計の比率で合計金額を按分して集計します（消費税や端数も比率で配分され、合計は必ず `Amount` と一致します）。品目がない明細や、種別が1つだけの明細はそのカテゴリに全額計上します。以前に登録した種別なしの品目は、全体カテゴリとして扱われます。
 
+### Incomes（収入）
+| 列 | 項目 | 内容 |
+|---|---|---|
+| A | ID | `I_` ＋ UUID |
+| B | User_ID | 所有者 |
+| C | Month | `YYYY-MM`（書式なしテキスト） |
+| D | Source | 種類（給与・年金・賞与など自由入力） |
+| E | Amount | 金額（整数・円） |
+| F | Memo | メモ |
+| G | Created_At | 登録日時 |
+| H | Updated_At | 更新日時 |
+
+> 収入は**月単位**で、1か月に何件でも登録できます（例：給与＋年金）。収支＝その月の収入合計 − 支出合計。
+
 ### Categories（カテゴリ＝種別）
 | Name | Color | Sort_Order | User_ID |
 |---|---|---|---|
@@ -141,7 +155,17 @@ receipt-kakeibo/
 
 ---
 
-## 4. 種別（カテゴリ）の設定
+## 4. 収入と月の収支
+
+- 画面上部の「収入」タブで、月を選んで収入を追加・編集・削除します（‹ › で前後の月へ）。
+- 種類は自由入力です。一度使った種類と「給与・年金・賞与・副業・臨時収入・その他」が候補に出ます。
+- その月に収入が未登録なら「先月の収入をコピーする」ボタンが出ます。毎月同じ年金・給与の入力が1タップで済みます。
+- 「家計のようす」では、今月の収入・支出・収支を表示します。月ごとの推移グラフには収入が点線で重なり、表には「支出合計・収入・収支」の行が入ります。
+- 収支はプラスが青、マイナスが赤で表示されます。
+
+---
+
+## 5. 種別（カテゴリ）の設定
 
 - 画面上部の「種別の設定」、または入力画面の種別の選択肢の一番下「＋ 種別を追加・編集…」から開きます（入力中の内容は消えません）。
 - **追加**：色と名前を入れて「追加」。新しい種別は「その他」の直前に入ります。
@@ -152,7 +176,7 @@ receipt-kakeibo/
 
 ---
 
-## 5. 会員登録・パスワードの流れ
+## 6. 会員登録・パスワードの流れ
 
 **新規登録**
 1. 「新規登録」でメールアドレスだけ入力 →「仮パスワードを送信」
@@ -178,7 +202,7 @@ receipt-kakeibo/
 
 ---
 
-## 6. 通信とセキュリティの仕組み
+## 7. 通信とセキュリティの仕組み
 
 - **CORS**：フロントは `Content-Type: text/plain` でPOSTします。これで「単純リクエスト」になり、GASが対応できないプリフライト（OPTIONS）が発生しません。GASの応答は `ContentService.MimeType.JSON` で返し、リダイレクト先から読み取れます。
 - **トークンの受け渡し**：GASの `doPost` はリクエストヘッダーを読めないため、トークンはリクエスト本文の `token` に入れて送ります。
@@ -189,7 +213,7 @@ receipt-kakeibo/
 
 ---
 
-## 7. API一覧（`action`）
+## 8. API一覧（`action`）
 
 | action | 認証 | payload | 返り値 |
 |---|---|---|---|
@@ -203,7 +227,11 @@ receipt-kakeibo/
 | `saveExpense` | ○ | `{id?, date, store, category, amount, memo, items, imageUrl}` | `{id}` |
 | `deleteExpense` | ○ | `{id}` | `{id}` |
 | `listExpenses` | ○ | `{limit?, month?}` | `{items, total}` |
-| `getSummary` | ○ | `{months}`（1〜24） | `{months, series, monthTotals, current, previous}` |
+| `getSummary` | ○ | `{months}`（1〜24） | `{months, series, monthTotals, incomeTotals, balances, current, previous}` |
+| `listIncomes` | ○ | `{month}` | `{month, items, income, expense, balance, sources}` |
+| `saveIncome` | ○ | `{id?, month, source, amount, memo}` | `{id}` |
+| `deleteIncome` | ○ | `{id}` | `{id}` |
+| `copyIncomes` | ○ | `{from, to}` | `{copied}` |
 | `getCategories` | ○ | － | `{categories}` |
 | `addCategory` | ○ | `{name, color}` | `{categories}` |
 | `updateCategory` | ○ | `{oldName, name, color}` | `{categories, changedExpenses}` |
@@ -212,7 +240,7 @@ receipt-kakeibo/
 
 ---
 
-## 8. よくあるつまずき
+## 9. よくあるつまずき
 
 | 症状 | 原因と対処 |
 |---|---|

@@ -29,6 +29,8 @@ const state = {
   trendMonths: 6,
   listLimit: LIST_PAGE,
   expenses: new Map(),
+  incomeMonth: null,        // 'YYYY-MM'
+  incomes: new Map(),
   catEdit: null,            // { name, mode: 'edit' | 'delete' }
   categoriesChanged: false,
   charts: { donut: null, trend: null }
@@ -134,6 +136,7 @@ function showView(name) {
   state.view = name;
   $('#view-dashboard').classList.toggle('hidden', name !== 'dashboard');
   $('#view-add').classList.toggle('hidden', name !== 'add');
+  $('#view-income').classList.toggle('hidden', name !== 'income');
   $$('.tab').forEach(t => {
     if (t.dataset.nav === name) t.setAttribute('aria-current', 'page');
     else t.removeAttribute('aria-current');
@@ -142,6 +145,11 @@ function showView(name) {
 
   if (name === 'dashboard') loadDashboard();
   if (name === 'add' && !state.editingId) resetEntry(state.mode);
+  if (name === 'income') {
+    if (!state.incomeMonth) state.incomeMonth = currentMonthKey();
+    resetIncomeForm();
+    loadIncomes();
+  }
 }
 
 function setOverlay(on, text) {
@@ -170,6 +178,30 @@ function escapeHtml(s) {
 function todayStr() {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function currentMonthKey() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function shiftMonth(key, delta) {
+  const [y, m] = key.split('-').map(Number);
+  const d = new Date(y, m - 1 + delta, 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+
+/** 収支の表示（プラスは＋、マイナスは−） */
+function signedYen(v) {
+  if (v > 0) return `+¥${yen.format(v)}`;
+  if (v < 0) return `−¥${yen.format(-v)}`;
+  return '¥0';
+}
+
+function setBalance(el, v) {
+  el.textContent = signedYen(v);
+  el.classList.toggle('text-shu', v < 0);
+  el.classList.toggle('text-ai', v > 0);
 }
 
 function monthLabel(key) {
@@ -400,6 +432,11 @@ function renderSummary(s) {
   }
   $('#dash-compare').textContent = compare;
 
+  $('#dash-income').textContent = `¥${yen.format(cur.income)}`;
+  $('#dash-expense').textContent = `¥${yen.format(cur.total)}`;
+  setBalance($('#dash-balance'), cur.balance);
+  $('#dash-income-hint').classList.toggle('hidden', cur.income > 0);
+
   renderDonut(cur.byCategory, cur.total);
   renderTrend(s);
   renderTrendTable(s);
@@ -459,14 +496,30 @@ function renderTrend(s) {
     type: 'bar',
     data: {
       labels,
-      datasets: s.series.map(x => ({
-        label: x.category,
-        data: x.values,
-        backgroundColor: x.color,
-        borderRadius: 2,
-        maxBarThickness: 36,
-        stack: 'total'
-      }))
+      datasets: [
+        ...s.series.map(x => ({
+          label: x.category,
+          data: x.values,
+          backgroundColor: x.color,
+          borderRadius: 2,
+          maxBarThickness: 36,
+          stack: 'total',
+          order: 1
+        })),
+        ...(s.incomeTotals.some(v => v > 0) ? [{
+          type: 'line',
+          label: '収入',
+          data: s.incomeTotals,
+          borderColor: '#1D2733',
+          backgroundColor: '#1D2733',
+          borderWidth: 2,
+          borderDash: [5, 4],
+          pointRadius: 3.5,
+          pointHoverRadius: 5,
+          stack: 'income',
+          order: 0
+        }] : [])
+      ]
     },
     options: {
       maintainAspectRatio: false,
@@ -487,7 +540,15 @@ function renderTrend(s) {
           callbacks: {
             title: items => items.length ? monthLabel(s.months[items[0].dataIndex]) : '',
             label: c => ` ${c.dataset.label}  ¥${yen.format(c.raw)}`,
-            footer: items => items.length ? `合計  ¥${yen.format(s.monthTotals[items[0].dataIndex])}` : ''
+            footer: items => {
+              if (!items.length) return '';
+              const i = items[0].dataIndex;
+              return [
+                `支出合計  ¥${yen.format(s.monthTotals[i])}`,
+                `収入  ¥${yen.format(s.incomeTotals[i])}`,
+                `収支  ${signedYen(s.balances[i])}`
+              ];
+            }
           }
         }
       }
@@ -515,17 +576,13 @@ function renderTrendTable(s) {
   const tbody = table.querySelector('tbody');
   const tfoot = table.querySelector('tfoot');
 
-  if (!s.series.length) {
-    tbody.innerHTML = `<tr><td colspan="${s.months.length + 2}" class="text-center text-mute py-6">この期間の記録はまだありません。</td></tr>`;
-    tfoot.innerHTML = '';
-    return;
-  }
-
   const rows = s.series
     .map(x => ({ ...x, total: x.values.reduce((a, b) => a + b, 0) }))
     .sort((a, b) => b.total - a.total);
 
-  tbody.innerHTML = rows.map(x => `<tr>
+  tbody.innerHTML = !rows.length
+    ? `<tr><td colspan="${s.months.length + 2}" class="text-center text-mute py-6">この期間の支出の記録はまだありません。</td></tr>`
+    : rows.map(x => `<tr>
       <th scope="row" class="col-name font-normal">
         <span class="inline-flex items-center gap-2">
           <span class="h-2.5 w-2.5 rounded-sm shrink-0" style="background:${escapeHtml(x.color)}"></span>${escapeHtml(x.category)}
@@ -535,11 +592,24 @@ function renderTrendTable(s) {
       <td class="num text-right font-medium col-total">${fmt(x.total)}</td>
     </tr>`).join('');
 
-  const grand = s.monthTotals.reduce((a, b) => a + b, 0);
+  const sum = arr => arr.reduce((a, b) => a + b, 0);
+  const balCell = (v, extra) =>
+    `<td class="num text-right${v < 0 ? ' text-shu' : v > 0 ? ' text-ai' : ' zero'}${extra}">${v === 0 ? '—' : escapeHtml(signedYen(v))}</td>`;
+
   tfoot.innerHTML = `<tr>
-      <th scope="row" class="col-name">月合計</th>
+      <th scope="row" class="col-name">支出合計</th>
       ${s.monthTotals.map((v, i) => `<td class="num text-right${v > 0 ? '' : ' zero'}${nowCls(s.months[i])}">${fmt(v)}</td>`).join('')}
-      <td class="num text-right col-total">${fmt(grand)}</td>
+      <td class="num text-right col-total">${fmt(sum(s.monthTotals))}</td>
+    </tr>
+    <tr class="row-income">
+      <th scope="row" class="col-name">収入</th>
+      ${s.incomeTotals.map((v, i) => `<td class="num text-right${v > 0 ? '' : ' zero'}${nowCls(s.months[i])}">${fmt(v)}</td>`).join('')}
+      <td class="num text-right col-total">${fmt(sum(s.incomeTotals))}</td>
+    </tr>
+    <tr class="row-balance">
+      <th scope="row" class="col-name">収支</th>
+      ${s.balances.map((v, i) => balCell(v, nowCls(s.months[i]))).join('')}
+      ${balCell(sum(s.balances), ' col-total')}
     </tr>`;
 }
 
@@ -807,6 +877,144 @@ function onSumItems() {
   const items = collectItems();
   if (!items.length) { toast('金額の入った品目がありません。', 'error'); return; }
   $('#f-amount').value = String(items.reduce((s, i) => s + i.price, 0));
+}
+
+/* =========================================================
+ * 収入
+ * ========================================================= */
+const DEFAULT_INCOME_SOURCES = ['給与', '年金', '賞与', '副業', '臨時収入', 'その他'];
+
+async function loadIncomes() {
+  const month = state.incomeMonth;
+  $('#inc-month').value = month;
+  try {
+    const data = await api('listIncomes', { month });
+    if (month !== state.incomeMonth) return; // 読み込み中に月が変わった
+    renderIncomes(data);
+  } catch (err) {
+    if (err.code !== 'AUTH' && err.code !== 'MUST_CHANGE') toast(err.message, 'error');
+  }
+}
+
+function renderIncomes(data) {
+  state.incomes.clear();
+  data.items.forEach(x => state.incomes.set(x.id, x));
+
+  $('#inc-sum-income').textContent = `¥${yen.format(data.income)}`;
+  $('#inc-sum-expense').textContent = `¥${yen.format(data.expense)}`;
+  $('#inc-sum-label').textContent = `${monthLabel(data.month)}の収支`;
+  setBalance($('#inc-sum-balance'), data.balance);
+
+  $('#inc-empty').classList.toggle('hidden', data.items.length > 0);
+  $('#inc-copy-prev').textContent = `${monthLabel(shiftMonth(data.month, -1))}の収入をコピーする`;
+
+  $('#inc-list').innerHTML = data.items.map(x => `<li class="flex items-center gap-3 py-3 border-b border-rule">
+      <div class="min-w-0 flex-1">
+        <p class="truncate font-medium">${escapeHtml(x.source)}</p>
+        ${x.memo ? `<p class="truncate text-xs text-mute mt-0.5">${escapeHtml(x.memo)}</p>` : ''}
+      </div>
+      <p class="num font-medium text-right shrink-0">¥${yen.format(x.amount)}</p>
+      <div class="flex gap-1 shrink-0">
+        <button type="button" data-inc-edit="${escapeHtml(x.id)}" class="rounded-md px-2 py-1.5 text-xs border border-rule bg-white hover:border-ink">編集</button>
+        <button type="button" data-inc-delete="${escapeHtml(x.id)}" class="rounded-md px-2 py-1.5 text-xs text-shu hover:bg-shu hover:text-white">削除</button>
+      </div>
+    </li>`).join('');
+
+  const sources = [...new Set([...(data.sources || []), ...DEFAULT_INCOME_SOURCES])];
+  $('#inc-source-list').innerHTML = sources.map(v => `<option value="${escapeHtml(v)}"></option>`).join('');
+}
+
+function setIncomeMonth(month) {
+  if (!/^\d{4}-\d{2}$/.test(month)) return;
+  state.incomeMonth = month;
+  resetIncomeForm();
+  loadIncomes();
+}
+
+function resetIncomeForm() {
+  $('#inc-id').value = '';
+  $('#inc-source').value = '';
+  $('#inc-amount').value = '';
+  $('#inc-memo').value = '';
+  $('#inc-form-title').textContent = '収入を追加';
+  $('#inc-save').textContent = '追加する';
+  $('#inc-cancel').classList.add('hidden');
+  $('#inc-error').classList.add('hidden');
+}
+
+function startIncomeEdit(id) {
+  const x = state.incomes.get(id);
+  if (!x) return;
+  $('#inc-id').value = x.id;
+  $('#inc-source').value = x.source;
+  $('#inc-amount').value = String(x.amount);
+  $('#inc-memo').value = x.memo;
+  $('#inc-form-title').textContent = '収入を編集';
+  $('#inc-save').textContent = '変更を保存';
+  $('#inc-cancel').classList.remove('hidden');
+  $('#inc-error').classList.add('hidden');
+  $('#inc-form').scrollIntoView({ block: 'nearest', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+  $('#inc-amount').focus();
+}
+
+async function onIncomeSave(e) {
+  e.preventDefault();
+  const errEl = $('#inc-error');
+  errEl.classList.add('hidden');
+  const fail = msg => { errEl.textContent = msg; errEl.classList.remove('hidden'); };
+
+  const id = $('#inc-id').value;
+  const source = $('#inc-source').value.trim();
+  const amount = parseInt($('#inc-amount').value, 10);
+  if (!source) return fail('種類を入力してください（例：給与、年金）。');
+  if (!Number.isFinite(amount) || amount < 0) return fail('金額を0以上の数字で入力してください。');
+
+  await withButton($('#inc-save'), '保存しています…', async () => {
+    try {
+      await api('saveIncome', { id: id || undefined, month: state.incomeMonth, source, amount, memo: $('#inc-memo').value.trim() });
+      toast(id ? '変更を保存しました' : '収入を追加しました');
+      resetIncomeForm();
+      await loadIncomes();
+    } catch (err) {
+      fail(err.message);
+    }
+  });
+}
+
+async function onIncomeListClick(e) {
+  const edit = e.target.closest('[data-inc-edit]');
+  const del = e.target.closest('[data-inc-delete]');
+  if (edit) startIncomeEdit(edit.dataset.incEdit);
+  if (del) {
+    const x = state.incomes.get(del.dataset.incDelete);
+    if (!x) return;
+    if (!confirm(`${monthLabel(state.incomeMonth)}の「${x.source}」¥${yen.format(x.amount)} を削除しますか？`)) return;
+    setOverlay(true, '削除しています…');
+    try {
+      await api('deleteIncome', { id: x.id });
+      toast('削除しました');
+      if ($('#inc-id').value === x.id) resetIncomeForm();
+      await loadIncomes();
+    } catch (err) {
+      toast(err.message, 'error');
+    } finally {
+      setOverlay(false);
+    }
+  }
+}
+
+async function onIncomeCopyPrev() {
+  const from = shiftMonth(state.incomeMonth, -1);
+  setOverlay(true, 'コピーしています…');
+  try {
+    const data = await api('copyIncomes', { from, to: state.incomeMonth });
+    toast(`${monthLabel(from)}の収入を${data.copied}件コピーしました`);
+    await loadIncomes();
+  } catch (err) {
+    toast(err.message, 'error');
+  } finally {
+    setOverlay(false);
+  }
 }
 
 /* =========================================================
@@ -1193,6 +1401,14 @@ function bindEvents() {
   $('#f-category').addEventListener('change', onOverallCategoryChange);
 
   $('#btn-open-categories').addEventListener('click', openCategoryDialog);
+
+  $('#inc-month').addEventListener('change', e => setIncomeMonth(e.target.value));
+  $('#inc-prev').addEventListener('click', () => setIncomeMonth(shiftMonth(state.incomeMonth, -1)));
+  $('#inc-next').addEventListener('click', () => setIncomeMonth(shiftMonth(state.incomeMonth, 1)));
+  $('#inc-form').addEventListener('submit', onIncomeSave);
+  $('#inc-cancel').addEventListener('click', resetIncomeForm);
+  $('#inc-list').addEventListener('click', onIncomeListClick);
+  $('#inc-copy-prev').addEventListener('click', onIncomeCopyPrev);
   $('#cat-close').addEventListener('click', closeCategoryDialog);
   $('#cat-dialog').addEventListener('close', onCategoryDialogClosed);
   $('#cat-dialog').addEventListener('click', e => { if (e.target === e.currentTarget) closeCategoryDialog(); });

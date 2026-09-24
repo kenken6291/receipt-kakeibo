@@ -93,6 +93,8 @@
     #trend-table .col-total { background: #F6F7F5; }
     #trend-table .col-now { background: #F1F4FA; }
     #trend-table td.zero { color: #B5BBC2; }
+    #trend-table tfoot tr + tr td, #trend-table tfoot tr + tr th { border-top: 1px solid #EEF0ED; }
+    #trend-table tfoot .row-income td, #trend-table tfoot .row-income th { font-weight: 500; }
 
     @media (prefers-reduced-motion: no-preference) {
       .print-in { animation: print-in .45s cubic-bezier(.2,.7,.2,1) both; }
@@ -223,9 +225,10 @@
           <button id="btn-logout" type="button" class="text-mute hover:text-ink underline underline-offset-4">ログアウト</button>
         </div>
       </div>
-      <nav class="max-w-3xl mx-auto px-4 flex gap-6 text-sm" aria-label="画面の切り替え">
+      <nav class="max-w-3xl mx-auto px-4 flex gap-5 sm:gap-6 text-sm overflow-x-auto whitespace-nowrap" aria-label="画面の切り替え">
         <button type="button" data-nav="dashboard" class="tab pb-2 border-b-2 border-transparent text-mute font-medium">家計のようす</button>
         <button type="button" data-nav="add" class="tab pb-2 border-b-2 border-transparent text-mute font-medium">支出を記録</button>
+        <button type="button" data-nav="income" class="tab pb-2 border-b-2 border-transparent text-mute font-medium">収入</button>
         <button type="button" id="btn-open-categories" class="pb-2 border-b-2 border-transparent text-mute font-medium hover:text-ink">種別の設定</button>
       </nav>
     </header>
@@ -241,6 +244,25 @@
             <span id="dash-total" class="font-mincho num text-[3.25rem] leading-none tracking-tight">0</span>
           </p>
           <p id="dash-compare" class="mt-3 text-sm text-mute"></p>
+
+          <dl class="mt-6 grid grid-cols-3 max-w-lg rounded-lg border border-rule bg-white text-sm">
+            <div class="px-3 py-3 sm:px-4">
+              <dt class="text-xs text-mute">今月の収入</dt>
+              <dd id="dash-income" class="num mt-1 font-medium">¥0</dd>
+            </div>
+            <div class="px-3 py-3 sm:px-4 border-l border-rule">
+              <dt class="text-xs text-mute">今月の支出</dt>
+              <dd id="dash-expense" class="num mt-1 font-medium">¥0</dd>
+            </div>
+            <div class="px-3 py-3 sm:px-4 border-l border-rule">
+              <dt class="text-xs text-mute">収支</dt>
+              <dd id="dash-balance" class="num mt-1 text-lg font-bold">¥0</dd>
+            </div>
+          </dl>
+          <p id="dash-income-hint" class="hidden mt-2 text-xs text-mute">
+            今月の収入がまだ入力されていません。
+            <button type="button" data-nav="income" class="text-ai underline underline-offset-4">収入を入力する</button>
+          </p>
         </div>
 
         <div class="mt-10 grid md:grid-cols-[minmax(0,15rem)_1fr] gap-8 items-center">
@@ -286,6 +308,65 @@
           </div>
           <button id="btn-more" type="button" class="hidden mt-4 w-full rounded-lg border border-rule bg-white py-2.5 text-sm">さらに表示</button>
         </div>
+      </section>
+
+      <!-- ---------- 収入 ---------- -->
+      <section id="view-income" class="hidden pt-8">
+        <div class="flex flex-wrap items-end justify-between gap-4">
+          <h2 class="text-lg font-bold">収入</h2>
+          <div class="flex items-center gap-1">
+            <button type="button" id="inc-prev" class="rounded-md border border-rule bg-white px-3 py-2 text-sm" aria-label="前の月">‹</button>
+            <label class="sr-only" for="inc-month">表示する月</label>
+            <input id="inc-month" type="month" class="field w-44 py-2 num">
+            <button type="button" id="inc-next" class="rounded-md border border-rule bg-white px-3 py-2 text-sm" aria-label="次の月">›</button>
+          </div>
+        </div>
+
+        <dl class="mt-5 grid grid-cols-3 rounded-lg border border-rule bg-white text-sm">
+          <div class="px-3 py-3 sm:px-4">
+            <dt class="text-xs text-mute">収入</dt>
+            <dd id="inc-sum-income" class="num mt-1 font-medium">¥0</dd>
+          </div>
+          <div class="px-3 py-3 sm:px-4 border-l border-rule">
+            <dt class="text-xs text-mute">支出</dt>
+            <dd id="inc-sum-expense" class="num mt-1 font-medium">¥0</dd>
+          </div>
+          <div class="px-3 py-3 sm:px-4 border-l border-rule">
+            <dt id="inc-sum-label" class="text-xs text-mute">収支</dt>
+            <dd id="inc-sum-balance" class="num mt-1 text-lg font-bold">¥0</dd>
+          </div>
+        </dl>
+
+        <ul id="inc-list" class="mt-6 border-t border-rule"></ul>
+        <div id="inc-empty" class="hidden py-6 text-center">
+          <p class="text-mute text-sm">この月の収入はまだ登録されていません。</p>
+          <button type="button" id="inc-copy-prev" class="mt-3 rounded-lg border border-ink bg-white px-4 py-2 text-sm font-medium">先月の収入をコピーする</button>
+        </div>
+
+        <form id="inc-form" class="mt-6 rounded-lg border border-rule bg-white p-4 sm:p-5" novalidate>
+          <p id="inc-form-title" class="font-bold">収入を追加</p>
+          <input type="hidden" id="inc-id">
+          <div class="mt-3 grid gap-3 sm:grid-cols-[1fr_12rem]">
+            <label class="block">
+              <span class="text-sm text-mute">種類</span>
+              <input id="inc-source" type="text" list="inc-source-list" maxlength="30" placeholder="例：給与、年金" class="field mt-1">
+              <datalist id="inc-source-list"></datalist>
+            </label>
+            <label class="block">
+              <span class="text-sm text-mute">金額（円）</span>
+              <input id="inc-amount" type="number" inputmode="numeric" min="0" step="1" class="field mt-1 num text-right">
+            </label>
+          </div>
+          <label class="mt-3 block">
+            <span class="text-sm text-mute">メモ</span>
+            <input id="inc-memo" type="text" maxlength="200" placeholder="任意" class="field mt-1">
+          </label>
+          <p id="inc-error" class="hidden mt-3 text-sm text-shu" role="alert"></p>
+          <div class="mt-4 flex justify-end gap-2">
+            <button type="button" id="inc-cancel" class="hidden rounded-lg border border-rule px-4 py-2.5 text-sm">やめる</button>
+            <button type="submit" id="inc-save" class="rounded-lg bg-ink px-5 py-2.5 text-sm font-medium text-white disabled:opacity-60">追加する</button>
+          </div>
+        </form>
       </section>
 
       <!-- ---------- 記録・編集 ---------- -->
