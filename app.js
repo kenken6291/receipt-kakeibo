@@ -501,17 +501,22 @@ function renderList(list) {
 
   ul.innerHTML = list.items.map(x => {
     const title = x.store || x.memo || x.category;
+    const parts = (x.breakdown && x.breakdown.length) ? x.breakdown : [{ category: x.category, amount: x.amount }];
+    const stripe = stripeStyle(parts);
+    const catLabel = parts.length > 1
+      ? parts.map(p => `${p.category} ¥${yen.format(p.amount)}`).join('／')
+      : parts[0].category;
     const sub = x.store && x.memo ? `<span class="truncate">${escapeHtml(x.memo)}</span>` : '';
     const receipt = x.imageUrl
       ? `<a href="${escapeHtml(x.imageUrl)}" target="_blank" rel="noopener" class="text-ai underline underline-offset-2 shrink-0">レシート</a>`
       : '';
     return `<li class="flex items-center gap-3 py-3 border-b border-rule">
-        <span class="w-1.5 self-stretch rounded-full shrink-0" style="background:${escapeHtml(categoryColor(x.category))}"></span>
+        <span class="w-1.5 self-stretch rounded-full shrink-0" style="${escapeHtml(stripe)}"></span>
         <div class="flex-1 min-w-0">
           <p class="truncate font-medium">${escapeHtml(title)}</p>
           <p class="text-xs text-mute mt-0.5 flex gap-2 min-w-0">
             <span class="num shrink-0">${escapeHtml(shortDate(x.date))}</span>
-            <span class="shrink-0">${escapeHtml(x.category)}</span>
+            <span class="${parts.length > 1 ? 'truncate' : 'shrink-0'}">${escapeHtml(catLabel)}</span>
             ${receipt}
             ${sub}
           </p>
@@ -523,6 +528,21 @@ function renderList(list) {
         </div>
       </li>`;
   }).join('');
+}
+
+/** 種別ごとの金額比率で、明細の左端の色帯を塗り分ける */
+function stripeStyle(parts) {
+  const total = parts.reduce((s, p) => s + p.amount, 0);
+  if (parts.length === 1 || total <= 0) return `background:${categoryColor(parts[0].category)}`;
+  let acc = 0;
+  const stops = parts.map(p => {
+    const from = (acc / total) * 100;
+    acc += p.amount;
+    const to = (acc / total) * 100;
+    const c = categoryColor(p.category);
+    return `${c} ${from.toFixed(1)}% ${to.toFixed(1)}%`;
+  });
+  return `background:linear-gradient(to bottom, ${stops.join(', ')})`;
 }
 
 async function onListClick(e) {
@@ -589,6 +609,7 @@ function fillForm(x) {
   $('#f-store').value = x.store || '';
   $('#f-category').value = state.categories.some(c => c.name === x.category)
     ? x.category : (state.categories.find(c => c.name === 'その他')?.name || '');
+  $('#f-category').dataset.prev = $('#f-category').value;
   $('#f-amount').value = (x.amount ?? '') === '' ? '' : String(x.amount);
   $('#f-memo').value = x.memo || '';
   $('#f-image-url').value = x.imageUrl || '';
@@ -621,23 +642,50 @@ function startEdit(id) {
   showForm(true);
 }
 
-/* ---- 品目 ---- */
+/* ---- 品目と種別 ---- */
+function categoryOptionsHtml() {
+  return state.categories
+    .map(c => `<option value="${escapeHtml(c.name)}">${escapeHtml(c.name)}</option>`)
+    .join('');
+}
+
 function renderItems(items) {
   const wrap = $('#items-wrap');
   wrap.innerHTML = '';
   items.forEach(addItemRow);
+  updateItemsBreakdown();
 }
 
-function addItemRow(item = { name: '', price: '' }) {
+function paintItemCategory(select) {
+  select.style.borderLeftColor = categoryColor(select.value);
+}
+
+function addItemRow(item = { name: '', price: '', category: '' }) {
   const row = document.createElement('div');
-  row.className = 'item-row flex items-center gap-2 text-sm';
+  row.className = 'item-row py-2 text-sm';
   row.innerHTML = `
-    <input type="text" class="item-name rc-input flex-1" maxlength="100" placeholder="品名" aria-label="品名">
-    <input type="number" class="item-price rc-input num text-right w-24" inputmode="numeric" step="1" placeholder="0" aria-label="金額">
-    <button type="button" class="item-remove text-mute hover:text-shu px-1 text-lg leading-none" aria-label="この品目を削除">×</button>`;
-  row.querySelector('.item-name').value = item.name || '';
-  row.querySelector('.item-price').value = item.price === '' || item.price == null ? '' : String(item.price);
-  row.querySelector('.item-remove').addEventListener('click', () => row.remove());
+    <div class="flex items-center gap-2">
+      <input type="text" class="item-name rc-input flex-1 min-w-0" maxlength="100" placeholder="品名" aria-label="品名">
+      <input type="number" class="item-price rc-input num text-right w-24" inputmode="numeric" step="1" placeholder="0" aria-label="金額">
+      <button type="button" class="item-remove text-mute hover:text-shu px-1 text-lg leading-none" aria-label="この品目を削除">×</button>
+    </div>
+    <label class="mt-1 flex items-center gap-2 text-xs text-mute">
+      <span class="shrink-0">種別</span>
+      <select class="item-category rounded border border-rule border-l-4 bg-white px-2 py-1 text-xs text-ink" aria-label="この品目の種別">${categoryOptionsHtml()}</select>
+    </label>`;
+
+  const name = row.querySelector('.item-name');
+  const price = row.querySelector('.item-price');
+  const cat = row.querySelector('.item-category');
+  name.value = item.name || '';
+  price.value = item.price === '' || item.price == null ? '' : String(item.price);
+  cat.value = state.categories.some(c => c.name === item.category) ? item.category : $('#f-category').value;
+  paintItemCategory(cat);
+
+  cat.addEventListener('change', () => { paintItemCategory(cat); updateItemsBreakdown(); });
+  price.addEventListener('input', updateItemsBreakdown);
+  name.addEventListener('input', updateItemsBreakdown);
+  row.querySelector('.item-remove').addEventListener('click', () => { row.remove(); updateItemsBreakdown(); });
   $('#items-wrap').appendChild(row);
   return row;
 }
@@ -645,8 +693,45 @@ function addItemRow(item = { name: '', price: '' }) {
 function collectItems() {
   return $$('.item-row').map(r => ({
     name: r.querySelector('.item-name').value.trim(),
-    price: parseInt(r.querySelector('.item-price').value, 10)
+    price: parseInt(r.querySelector('.item-price').value, 10),
+    category: r.querySelector('.item-category').value
   })).filter(i => i.name && Number.isFinite(i.price));
+}
+
+/** 種別ごとの品目小計を表示（2種別以上のときだけ） */
+function updateItemsBreakdown() {
+  const el = $('#items-breakdown');
+  const sums = {};
+  collectItems().forEach(i => { sums[i.category] = (sums[i.category] || 0) + i.price; });
+  const cats = state.categories.map(c => c.name).filter(n => sums[n] !== undefined);
+  if (cats.length < 2) { el.classList.add('hidden'); el.innerHTML = ''; return; }
+  el.innerHTML = '<p class="text-mute">種別ごとの小計</p>' + cats.map(n => `
+    <p class="flex items-center gap-2">
+      <span class="h-2.5 w-2.5 rounded-sm shrink-0" style="background:${escapeHtml(categoryColor(n))}"></span>
+      <span class="flex-1">${escapeHtml(n)}</span>
+      <span class="num">¥${yen.format(sums[n])}</span>
+    </p>`).join('');
+  el.classList.remove('hidden');
+}
+
+/** 全体カテゴリを変えたら、それまで全体カテゴリと同じだった品目の種別も追従させる */
+function onOverallCategoryChange() {
+  const sel = $('#f-category');
+  const prev = sel.dataset.prev;
+  $$('.item-category').forEach(s => {
+    if (s.value === prev) { s.value = sel.value; paintItemCategory(s); }
+  });
+  sel.dataset.prev = sel.value;
+  updateItemsBreakdown();
+}
+
+function onItemsAll() {
+  const v = $('#f-category').value;
+  const selects = $$('.item-category');
+  if (!selects.length) { toast('品目がありません。', 'error'); return; }
+  selects.forEach(s => { s.value = v; paintItemCategory(s); });
+  updateItemsBreakdown();
+  toast(`全品目の種別を「${v}」にしました`);
 }
 
 function onSumItems() {
@@ -843,6 +928,8 @@ function bindEvents() {
   $('#file-library').addEventListener('change', onFileSelected);
   $('#btn-add-item').addEventListener('click', () => addItemRow().querySelector('.item-name').focus());
   $('#btn-sum-items').addEventListener('click', onSumItems);
+  $('#btn-items-all').addEventListener('click', onItemsAll);
+  $('#f-category').addEventListener('change', onOverallCategoryChange);
   $('#entry-form').addEventListener('submit', onSave);
   $('#btn-cancel').addEventListener('click', onCancel);
 }

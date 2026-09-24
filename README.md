@@ -56,11 +56,13 @@ receipt-kakeibo/
 | F | Amount | 合計金額（整数・円） |
 | G | Image_URL | DriveのレシートURL（手入力は空） |
 | H | Memo | メモ |
-| I | Items_JSON | 品目一覧 `[{"name":"牛乳","price":198}]` |
+| I | Items_JSON | 品目一覧 `[{"name":"牛乳","price":198,"category":"食費"}]`（category＝品目ごとの種別） |
 | J | Created_At | 登録日時 |
 | K | Updated_At | 更新日時 |
 
 > 要件の7列（A〜G）の後ろに、手入力のメモ・品目・日時の4列を追加しています。
+
+> **品目ごとの種別**：`Category` は「レシート全体のカテゴリ」、品目ごとの種別は `Items_JSON` の `category` に入ります。グラフや月の内訳は、品目の種別ごとの小計の比率で合計金額を按分して集計します（消費税や端数も比率で配分され、合計は必ず `Amount` と一致します）。品目がない明細や、種別が1つだけの明細はそのカテゴリに全額計上します。以前に登録した種別なしの品目は、全体カテゴリとして扱われます。
 
 ### Categories（カテゴリ）
 | Name | Color | Sort_Order |
