@@ -84,6 +84,16 @@
 
     .tab[aria-current="page"] { color: #1D2733; border-color: #1D2733; }
 
+    /* ---- 月別の表 ---- */
+    #trend-table th, #trend-table td { padding: 9px 12px; white-space: nowrap; }
+    #trend-table thead th { font-weight: 500; color: #66707C; font-size: 12px; border-bottom: 1px solid #D5DAD4; text-align: right; }
+    #trend-table tbody tr + tr td, #trend-table tbody tr + tr th { border-top: 1px solid #EEF0ED; }
+    #trend-table tfoot td, #trend-table tfoot th { border-top: 1.5px solid #1D2733; font-weight: 700; }
+    #trend-table .col-name { position: sticky; left: 0; background: #fff; text-align: left; z-index: 1; box-shadow: 1px 0 0 #D5DAD4; }
+    #trend-table .col-total { background: #F6F7F5; }
+    #trend-table .col-now { background: #F1F4FA; }
+    #trend-table td.zero { color: #B5BBC2; }
+
     @media (prefers-reduced-motion: no-preference) {
       .print-in { animation: print-in .45s cubic-bezier(.2,.7,.2,1) both; }
       @keyframes print-in {
@@ -252,6 +262,16 @@
           <div class="mt-4 h-72 bg-white rounded-lg border border-rule p-3">
             <canvas id="chart-trend" aria-label="カテゴリ別の月次推移"></canvas>
           </div>
+
+          <div class="mt-4 overflow-x-auto rounded-lg border border-rule bg-white">
+            <table id="trend-table" class="w-full border-collapse text-sm">
+              <caption class="sr-only">種別ごと・月ごとの支出額</caption>
+              <thead></thead>
+              <tbody></tbody>
+              <tfoot></tfoot>
+            </table>
+          </div>
+          <p class="mt-2 text-xs text-mute">表が横に長いときは、左右にスクロールできます。品目ごとの種別で振り分けた金額です。</p>
         </div>
 
         <div class="mt-14">

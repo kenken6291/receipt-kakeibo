@@ -402,6 +402,7 @@ function renderSummary(s) {
 
   renderDonut(cur.byCategory, cur.total);
   renderTrend(s);
+  renderTrendTable(s);
 }
 
 function renderDonut(byCategory, total) {
@@ -492,6 +493,54 @@ function renderTrend(s) {
       }
     }
   });
+}
+
+/** 種別×月の金額表（行＝種別、列＝月、右端＝期間合計、最下段＝月合計） */
+function renderTrendTable(s) {
+  const table = $('#trend-table');
+  const nowKey = s.current.month;
+  const fmt = v => v > 0 ? `¥${yen.format(v)}` : '—';
+  const monthHead = k => {
+    const [y, m] = k.split('-').map(Number);
+    return `${String(y).slice(2)}年${m}月`;
+  };
+  const nowCls = k => (k === nowKey ? ' col-now' : '');
+
+  table.querySelector('thead').innerHTML = `<tr>
+      <th scope="col" class="col-name">種別</th>
+      ${s.months.map(k => `<th scope="col" class="num${nowCls(k)}">${escapeHtml(monthHead(k))}</th>`).join('')}
+      <th scope="col" class="col-total">期間合計</th>
+    </tr>`;
+
+  const tbody = table.querySelector('tbody');
+  const tfoot = table.querySelector('tfoot');
+
+  if (!s.series.length) {
+    tbody.innerHTML = `<tr><td colspan="${s.months.length + 2}" class="text-center text-mute py-6">この期間の記録はまだありません。</td></tr>`;
+    tfoot.innerHTML = '';
+    return;
+  }
+
+  const rows = s.series
+    .map(x => ({ ...x, total: x.values.reduce((a, b) => a + b, 0) }))
+    .sort((a, b) => b.total - a.total);
+
+  tbody.innerHTML = rows.map(x => `<tr>
+      <th scope="row" class="col-name font-normal">
+        <span class="inline-flex items-center gap-2">
+          <span class="h-2.5 w-2.5 rounded-sm shrink-0" style="background:${escapeHtml(x.color)}"></span>${escapeHtml(x.category)}
+        </span>
+      </th>
+      ${x.values.map((v, i) => `<td class="num text-right${v > 0 ? '' : ' zero'}${nowCls(s.months[i])}">${fmt(v)}</td>`).join('')}
+      <td class="num text-right font-medium col-total">${fmt(x.total)}</td>
+    </tr>`).join('');
+
+  const grand = s.monthTotals.reduce((a, b) => a + b, 0);
+  tfoot.innerHTML = `<tr>
+      <th scope="row" class="col-name">月合計</th>
+      ${s.monthTotals.map((v, i) => `<td class="num text-right${v > 0 ? '' : ' zero'}${nowCls(s.months[i])}">${fmt(v)}</td>`).join('')}
+      <td class="num text-right col-total">${fmt(grand)}</td>
+    </tr>`;
 }
 
 function renderList(list) {
