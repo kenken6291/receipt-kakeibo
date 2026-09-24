@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#F2F4F1">
+  <title>レシート家計簿</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Shippori+Mincho+B1:wght@600;700&family=Zen+Kaku+Gothic+New:wght@400;500;700&display=swap" rel="stylesheet">
+
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            paper: '#F2F4F1',
+            ink:   '#1D2733',
+            ai:    '#2F4B7C',
+            rule:  '#D5DAD4',
+            mute:  '#66707C',
+            shu:   '#B4432F'
+          },
+          fontFamily: {
+            sans:   ['"Zen Kaku Gothic New"', '"Hiragino Sans"', '"Noto Sans JP"', 'sans-serif'],
+            mincho: ['"Shippori Mincho B1"', '"Hiragino Mincho ProN"', '"Yu Mincho"', 'serif']
+          }
+        }
+      }
+    };
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+
+  <style>
+    :root { color-scheme: light; }
+    html { -webkit-text-size-adjust: 100%; }
+    body {
+      background: #F2F4F1;
+      color: #1D2733;
+      padding-bottom: env(safe-area-inset-bottom, 0px);
+    }
+    .num { font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; }
+
+    :focus-visible { outline: 2px solid #2F4B7C; outline-offset: 2px; border-radius: 4px; }
+
+    /* ---- レシート用紙 ---- */
+    .receipt-shadow { filter: drop-shadow(0 1px 1px rgba(29,39,51,.10)) drop-shadow(0 6px 14px rgba(29,39,51,.07)); }
+    .receipt {
+      --tooth: 7px;
+      background: #fff;
+      padding: 34px 22px 38px;
+      -webkit-mask:
+        conic-gradient(from 135deg at top, #0000, #000 1deg 89deg, #0000 90deg) top / calc(2 * var(--tooth)) 51% repeat-x,
+        conic-gradient(from -45deg at bottom, #0000, #000 1deg 89deg, #0000 90deg) bottom / calc(2 * var(--tooth)) 51% repeat-x;
+              mask:
+        conic-gradient(from 135deg at top, #0000, #000 1deg 89deg, #0000 90deg) top / calc(2 * var(--tooth)) 51% repeat-x,
+        conic-gradient(from -45deg at bottom, #0000, #000 1deg 89deg, #0000 90deg) bottom / calc(2 * var(--tooth)) 51% repeat-x;
+    }
+    .cut { border-top: 1.5px dashed #C9CFC8; }
+    .rc-input {
+      width: 100%;
+      background: transparent;
+      border: 0;
+      border-bottom: 1px dashed #C9CFC8;
+      padding: 6px 2px;
+      border-radius: 0;
+    }
+    .rc-input:focus { outline: none; border-bottom: 1.5px solid #2F4B7C; }
+    select.rc-input { appearance: none; -webkit-appearance: none; background-image: linear-gradient(45deg, transparent 50%, #66707C 50%), linear-gradient(135deg, #66707C 50%, transparent 50%); background-position: calc(100% - 12px) 55%, calc(100% - 7px) 55%; background-size: 5px 5px; background-repeat: no-repeat; padding-right: 22px; }
+
+    /* ---- 共通フィールド ---- */
+    .field {
+      width: 100%;
+      background: #fff;
+      border: 1px solid #D5DAD4;
+      border-radius: 8px;
+      padding: 11px 12px;
+    }
+    .field:focus { outline: none; border-color: #2F4B7C; box-shadow: 0 0 0 3px rgba(47,75,124,.15); }
+
+    .seg button[aria-pressed="true"] { background: #1D2733; color: #fff; }
+
+    .tab[aria-current="page"] { color: #1D2733; border-color: #1D2733; }
+
+    @media (prefers-reduced-motion: no-preference) {
+      .print-in { animation: print-in .45s cubic-bezier(.2,.7,.2,1) both; }
+      @keyframes print-in {
+        from { clip-path: inset(0 0 100% 0); transform: translateY(-6px); }
+        to   { clip-path: inset(0 0 0 0);    transform: none; }
+      }
+      .spin { animation: spin 1s linear infinite; }
+      @keyframes spin { to { transform: rotate(360deg); } }
+    }
+  </style>
+</head>
+<body class="font-sans antialiased min-h-screen">
+
+  <!-- ============ ログイン / 新規登録 / パスワードを忘れた方 ============ -->
+  <section id="view-auth" class="hidden min-h-screen flex items-center justify-center px-5 py-10">
+    <div class="w-full max-w-sm">
+      <h1 class="font-mincho text-[2.1rem] leading-tight tracking-wide">レシート家計簿</h1>
+      <p class="text-mute mt-2 leading-relaxed">レシートを撮るだけで、日付・お店・金額・カテゴリが入力されます。</p>
+
+      <div id="auth-tabs" class="seg mt-8 grid grid-cols-2 rounded-lg border border-rule bg-white p-1 text-sm" role="group" aria-label="ログインまたは新規登録">
+        <button type="button" data-auth-mode="login" class="rounded-md py-2 font-medium" aria-pressed="true">ログイン</button>
+        <button type="button" data-auth-mode="register" class="rounded-md py-2 font-medium" aria-pressed="false">新規登録</button>
+      </div>
+
+      <div id="auth-notice" class="hidden mt-5 rounded-lg border border-ai/30 bg-white p-4 text-sm leading-relaxed" role="status"></div>
+
+      <!-- ログイン -->
+      <form id="form-login" class="mt-5 space-y-4" novalidate>
+        <label class="block">
+          <span class="text-sm text-mute">メールアドレス</span>
+          <input id="login-email" type="email" autocomplete="email" required class="field mt-1">
+        </label>
+        <div>
+          <label for="login-password" class="text-sm text-mute">パスワード（仮パスワードも可）</label>
+          <div class="relative mt-1">
+            <input id="login-password" type="password" autocomplete="current-password" required class="field pr-16">
+            <button type="button" data-pw-toggle="login-password" class="pw-toggle absolute inset-y-0 right-0 px-3 text-sm text-ai" aria-pressed="false" aria-label="パスワードを表示する">表示</button>
+          </div>
+        </div>
+        <p id="login-error" class="hidden text-sm text-shu" role="alert"></p>
+        <button id="login-submit" type="submit" class="w-full rounded-lg bg-ink text-white py-3 font-medium disabled:opacity-60">ログイン</button>
+        <p class="text-center">
+          <button type="button" data-auth-mode="forgot" class="text-sm text-ai underline underline-offset-4">パスワードを忘れた方</button>
+        </p>
+      </form>
+
+      <!-- 新規登録 -->
+      <form id="form-register" class="hidden mt-5 space-y-4" novalidate>
+        <p class="text-sm leading-relaxed">登録するメールアドレスに<strong>仮パスワード</strong>をお送りします。仮パスワードでログインしたあと、ご自分のパスワードを決めていただきます。</p>
+        <label class="block">
+          <span class="text-sm text-mute">メールアドレス</span>
+          <input id="register-email" type="email" autocomplete="email" required class="field mt-1">
+        </label>
+        <p id="register-error" class="hidden text-sm text-shu" role="alert"></p>
+        <button id="register-submit" type="submit" class="w-full rounded-lg bg-ink text-white py-3 font-medium disabled:opacity-60">仮パスワードを送信</button>
+      </form>
+
+      <!-- パスワードを忘れた方 -->
+      <form id="form-forgot" class="hidden mt-5 space-y-4" novalidate>
+        <h2 class="text-lg font-bold">パスワードを忘れた方</h2>
+        <p class="text-sm leading-relaxed">登録したメールアドレスに<strong>仮パスワード</strong>をお送りします。仮パスワードでログインしたあと、新しいパスワードを設定してください。今のパスワードを思い出した場合は、そのまま使えます。</p>
+        <label class="block">
+          <span class="text-sm text-mute">登録したメールアドレス</span>
+          <input id="forgot-email" type="email" autocomplete="email" required class="field mt-1">
+        </label>
+        <p id="forgot-error" class="hidden text-sm text-shu" role="alert"></p>
+        <button id="forgot-submit" type="submit" class="w-full rounded-lg bg-ink text-white py-3 font-medium disabled:opacity-60">仮パスワードを送信</button>
+        <p class="text-center">
+          <button type="button" data-auth-mode="login" class="text-sm text-ai underline underline-offset-4">ログインに戻る</button>
+        </p>
+      </form>
+    </div>
+  </section>
+
+  <!-- ============ パスワード設定（仮パスワード後の再設定 / 通常の変更） ============ -->
+  <section id="view-password" class="hidden min-h-screen flex items-center justify-center px-5 py-10">
+    <div class="w-full max-w-sm">
+      <h1 id="pw-title" class="font-mincho text-[1.8rem] leading-tight">新しいパスワードの設定</h1>
+      <p id="pw-lead" class="text-mute mt-2 leading-relaxed text-sm"></p>
+
+      <form id="form-password" class="mt-7 space-y-4" novalidate>
+        <input type="text" id="pw-username" autocomplete="username" class="hidden" tabindex="-1" aria-hidden="true">
+
+        <div id="pw-current-wrap">
+          <label for="pw-current" class="text-sm text-mute">現在のパスワード</label>
+          <div class="relative mt-1">
+            <input id="pw-current" type="password" autocomplete="current-password" class="field pr-16">
+            <button type="button" data-pw-toggle="pw-current" class="pw-toggle absolute inset-y-0 right-0 px-3 text-sm text-ai" aria-pressed="false" aria-label="パスワードを表示する">表示</button>
+          </div>
+        </div>
+
+        <div>
+          <label for="pw-new" class="text-sm text-mute">新しいパスワード</label>
+          <div class="relative mt-1">
+            <input id="pw-new" type="password" autocomplete="new-password" minlength="8" class="field pr-16" aria-describedby="pw-rule">
+            <button type="button" data-pw-toggle="pw-new" class="pw-toggle absolute inset-y-0 right-0 px-3 text-sm text-ai" aria-pressed="false" aria-label="パスワードを表示する">表示</button>
+          </div>
+          <p id="pw-rule" class="text-xs text-mute mt-1">8文字以上で、英字と数字を両方含めてください。</p>
+        </div>
+
+        <div>
+          <label for="pw-confirm" class="text-sm text-mute">新しいパスワード（確認のためもう一度）</label>
+          <div class="relative mt-1">
+            <input id="pw-confirm" type="password" autocomplete="new-password" minlength="8" class="field pr-16">
+            <button type="button" data-pw-toggle="pw-confirm" class="pw-toggle absolute inset-y-0 right-0 px-3 text-sm text-ai" aria-pressed="false" aria-label="パスワードを表示する">表示</button>
+          </div>
+        </div>
+
+        <p id="pw-error" class="hidden text-sm text-shu" role="alert"></p>
+        <button id="pw-submit" type="submit" class="w-full rounded-lg bg-ink text-white py-3 font-medium disabled:opacity-60">パスワードを設定</button>
+        <p class="text-center">
+          <button type="button" id="pw-back" class="text-sm text-ai underline underline-offset-4">家計簿に戻る</button>
+          <button type="button" id="pw-logout" class="text-sm text-mute underline underline-offset-4">ログアウト</button>
+        </p>
+      </form>
+    </div>
+  </section>
+
+  <!-- ============ アプリ本体 ============ -->
+  <div id="app-shell" class="hidden">
+    <header class="sticky top-0 z-20 bg-paper/95 backdrop-blur border-b border-rule" style="padding-top: env(safe-area-inset-top, 0px);">
+      <div class="max-w-3xl mx-auto px-4 flex items-center justify-between h-14">
+        <p class="font-mincho text-lg">レシート家計簿</p>
+        <div class="flex items-center gap-3 text-sm">
+          <span id="user-email" class="hidden sm:inline text-mute truncate max-w-[14rem]"></span>
+          <button id="btn-change-password" type="button" class="text-mute hover:text-ink underline underline-offset-4">パスワード変更</button>
+          <button id="btn-logout" type="button" class="text-mute hover:text-ink underline underline-offset-4">ログアウト</button>
+        </div>
+      </div>
+      <nav class="max-w-3xl mx-auto px-4 flex gap-6 text-sm" aria-label="画面の切り替え">
+        <button type="button" data-nav="dashboard" class="tab pb-2 border-b-2 border-transparent text-mute font-medium">家計のようす</button>
+        <button type="button" data-nav="add" class="tab pb-2 border-b-2 border-transparent text-mute font-medium">支出を記録</button>
+      </nav>
+    </header>
+
+    <main class="max-w-3xl mx-auto px-4 pb-24">
+
+      <!-- ---------- ダッシュボード ---------- -->
+      <section id="view-dashboard" class="hidden pt-8">
+        <div>
+          <p id="dash-month-label" class="text-mute">今月の支出</p>
+          <p class="mt-1 flex items-baseline gap-1">
+            <span class="font-mincho text-2xl">¥</span>
+            <span id="dash-total" class="font-mincho num text-[3.25rem] leading-none tracking-tight">0</span>
+          </p>
+          <p id="dash-compare" class="mt-3 text-sm text-mute"></p>
+        </div>
+
+        <div class="mt-10 grid md:grid-cols-[minmax(0,15rem)_1fr] gap-8 items-center">
+          <div class="relative h-56 md:h-60">
+            <canvas id="chart-donut" aria-label="今月のカテゴリ別内訳"></canvas>
+            <p id="donut-empty" class="hidden absolute inset-0 flex items-center justify-center text-center text-sm text-mute px-6">今月の記録はまだありません。</p>
+          </div>
+          <ul id="dash-legend" class="divide-y divide-rule text-sm"></ul>
+        </div>
+
+        <div class="mt-14">
+          <div class="flex items-end justify-between gap-4">
+            <h2 class="text-lg font-bold">月ごとの推移</h2>
+            <div class="seg grid grid-cols-2 rounded-lg border border-rule bg-white p-0.5 text-xs" role="group" aria-label="表示期間">
+              <button type="button" data-months="6" class="rounded-md px-3 py-1.5" aria-pressed="true">6か月</button>
+              <button type="button" data-months="12" class="rounded-md px-3 py-1.5" aria-pressed="false">12か月</button>
+            </div>
+          </div>
+          <div class="mt-4 h-72 bg-white rounded-lg border border-rule p-3">
+            <canvas id="chart-trend" aria-label="カテゴリ別の月次推移"></canvas>
+          </div>
+        </div>
+
+        <div class="mt-14">
+          <div class="flex items-end justify-between">
+            <h2 class="text-lg font-bold">最近の明細</h2>
+            <p id="list-count" class="text-xs text-mute"></p>
+          </div>
+          <ul id="expense-list" class="mt-3 border-t border-rule"></ul>
+          <div id="list-empty" class="hidden py-10 text-center">
+            <p class="text-mute">まだ支出が記録されていません。</p>
+            <button type="button" data-nav="add" class="mt-4 rounded-lg bg-ink text-white px-5 py-2.5 text-sm font-medium">最初の支出を記録する</button>
+          </div>
+          <button id="btn-more" type="button" class="hidden mt-4 w-full rounded-lg border border-rule bg-white py-2.5 text-sm">さらに表示</button>
+        </div>
+      </section>
+
+      <!-- ---------- 記録・編集 ---------- -->
+      <section id="view-add" class="hidden pt-8">
+        <h2 id="add-title" class="text-lg font-bold">支出を記録</h2>
+
+        <div id="mode-switch" class="seg mt-4 grid grid-cols-2 rounded-lg border border-rule bg-white p-1 text-sm max-w-xs" role="group" aria-label="記録のしかた">
+          <button type="button" data-mode="receipt" class="rounded-md py-2 font-medium" aria-pressed="true">レシートから</button>
+          <button type="button" data-mode="manual" class="rounded-md py-2 font-medium" aria-pressed="false">手入力</button>
+        </div>
+
+        <!-- レシート取り込み -->
+        <div id="receipt-pane" class="mt-6">
+          <div class="rounded-lg border-2 border-dashed border-rule bg-white/60 p-5 flex flex-col sm:flex-row gap-5 items-center">
+            <img id="receipt-thumb" alt="選択したレシート" class="hidden w-24 h-32 object-cover rounded border border-rule bg-white">
+            <div class="flex-1 text-center sm:text-left">
+              <p class="font-medium">レシートを撮影するか、画像を選んでください</p>
+              <p class="text-sm text-mute mt-1">レシート全体が写るように、明るい場所で撮ると正確に読み取れます。</p>
+              <div class="mt-4 flex flex-wrap gap-3 justify-center sm:justify-start">
+                <label class="cursor-pointer rounded-lg bg-ink text-white px-4 py-2.5 text-sm font-medium focus-within:ring-2 focus-within:ring-ai">
+                  カメラで撮る
+                  <input id="file-camera" type="file" accept="image/*" capture="environment" class="sr-only">
+                </label>
+                <label class="cursor-pointer rounded-lg border border-ink px-4 py-2.5 text-sm font-medium focus-within:ring-2 focus-within:ring-ai">
+                  画像を選ぶ
+                  <input id="file-library" type="file" accept="image/jpeg,image/png,image/*" class="sr-only">
+                </label>
+              </div>
+            </div>
+          </div>
+          <p id="analyze-warning" class="hidden mt-3 text-sm text-shu" role="status"></p>
+        </div>
+
+        <!-- 入力フォーム（レシート用紙） -->
+        <div id="entry-wrap" class="hidden mt-8 max-w-md mx-auto receipt-shadow">
+          <form id="entry-form" class="receipt" novalidate>
+            <input type="hidden" id="f-id">
+            <input type="hidden" id="f-image-url">
+
+            <label class="block text-center">
+              <span class="sr-only">店舗名・支払先</span>
+              <input id="f-store" type="text" maxlength="100" placeholder="店舗名・支払先"
+                     class="rc-input text-center text-xl font-bold tracking-wide">
+            </label>
+
+            <div class="mt-5 grid grid-cols-2 gap-4 text-sm">
+              <label class="block">
+                <span class="text-mute text-xs">日付</span>
+                <input id="f-date" type="date" required class="rc-input num">
+              </label>
+              <label class="block">
+                <span class="text-mute text-xs">カテゴリ</span>
+                <select id="f-category" class="rc-input"></select>
+              </label>
+            </div>
+
+            <div id="items-section" class="mt-6">
+              <div class="cut"></div>
+              <div class="flex items-center justify-between mt-3">
+                <p class="text-xs text-mute">品目</p>
+                <button type="button" id="btn-add-item" class="text-xs text-ai underline underline-offset-4">品目を追加</button>
+              </div>
+              <div id="items-wrap" class="mt-2 space-y-1"></div>
+              <button type="button" id="btn-sum-items" class="mt-3 text-xs text-ai underline underline-offset-4">品目の合計を金額に反映</button>
+            </div>
+
+            <div class="cut mt-6"></div>
+            <label class="mt-4 flex items-baseline justify-between gap-4">
+              <span class="font-bold">合計</span>
+              <span class="flex items-baseline gap-1 w-44">
+                <span class="font-mincho text-lg">¥</span>
+                <input id="f-amount" type="number" inputmode="numeric" min="0" step="1" required
+                       class="rc-input num text-right text-2xl font-bold">
+              </span>
+            </label>
+
+            <label class="block mt-6">
+              <span class="text-mute text-xs">メモ</span>
+              <textarea id="f-memo" rows="2" maxlength="500" class="rc-input resize-none text-sm" placeholder="任意"></textarea>
+            </label>
+
+            <p id="f-image-link-wrap" class="hidden mt-3 text-xs">
+              <a id="f-image-link" href="#" target="_blank" rel="noopener" class="text-ai underline underline-offset-4">保存したレシート画像を開く</a>
+            </p>
+
+            <p id="entry-error" class="hidden mt-4 text-sm text-shu" role="alert"></p>
+
+            <div class="cut mt-6"></div>
+            <div class="mt-6 flex gap-3">
+              <button type="button" id="btn-cancel" class="flex-1 rounded-lg border border-rule py-3 text-sm">やめる</button>
+              <button type="submit" id="btn-save" class="flex-[2] rounded-lg bg-ink text-white py-3 font-medium disabled:opacity-60">この内容で登録</button>
+            </div>
+          </form>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- 読み込み中 -->
+  <div id="overlay" class="hidden fixed inset-0 z-50 bg-paper/85 backdrop-blur-sm flex items-center justify-center" aria-live="polite">
+    <div class="text-center px-6">
+      <div class="spin mx-auto h-9 w-9 rounded-full border-[3px] border-rule border-t-ink"></div>
+      <p id="overlay-text" class="mt-4 font-medium">読み込んでいます…</p>
+    </div>
+  </div>
+
+  <!-- 通知 -->
+  <div id="toast" class="hidden fixed left-1/2 -translate-x-1/2 bottom-6 z-50 max-w-[90vw] rounded-lg px-4 py-3 text-sm shadow-lg" role="status" aria-live="polite"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
