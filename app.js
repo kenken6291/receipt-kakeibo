@@ -9,6 +9,8 @@ const STORAGE_KEY = 'receiptKakeibo.session';
 const IMAGE_MAX_SIDE = 1600;
 const IMAGE_QUALITY = 0.85;
 const LIST_PAGE = 20;
+const FALLBACK_CATEGORY = 'その他';
+const MANAGE_VALUE = '__manage__';   // 選択肢の「＋ 種別を追加・編集…」
 
 const yen = new Intl.NumberFormat('ja-JP');
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -27,6 +29,8 @@ const state = {
   trendMonths: 6,
   listLimit: LIST_PAGE,
   expenses: new Map(),
+  catEdit: null,            // { name, mode: 'edit' | 'delete' }
+  categoriesChanged: false,
   charts: { donut: null, trend: null }
 };
 
@@ -573,9 +577,10 @@ async function deleteExpense(id) {
  * ========================================================= */
 function renderCategoryOptions() {
   const sel = $('#f-category');
-  sel.innerHTML = state.categories
-    .map(c => `<option value="${escapeHtml(c.name)}">${escapeHtml(c.name)}</option>`)
-    .join('');
+  const current = sel.value;
+  sel.innerHTML = categoryOptionsHtml();
+  sel.value = state.categories.some(c => c.name === current) ? current : (state.categories[0]?.name || '');
+  sel.dataset.prev = sel.value;
 }
 
 function setMode(mode) {
@@ -646,7 +651,7 @@ function startEdit(id) {
 function categoryOptionsHtml() {
   return state.categories
     .map(c => `<option value="${escapeHtml(c.name)}">${escapeHtml(c.name)}</option>`)
-    .join('');
+    .join('') + `<option value="${MANAGE_VALUE}">＋ 種別を追加・編集…</option>`;
 }
 
 function renderItems(items) {
@@ -680,9 +685,19 @@ function addItemRow(item = { name: '', price: '', category: '' }) {
   name.value = item.name || '';
   price.value = item.price === '' || item.price == null ? '' : String(item.price);
   cat.value = state.categories.some(c => c.name === item.category) ? item.category : $('#f-category').value;
+  cat.dataset.prev = cat.value;
   paintItemCategory(cat);
 
-  cat.addEventListener('change', () => { paintItemCategory(cat); updateItemsBreakdown(); });
+  cat.addEventListener('change', () => {
+    if (cat.value === MANAGE_VALUE) {
+      cat.value = cat.dataset.prev;
+      openCategoryDialog();
+      return;
+    }
+    cat.dataset.prev = cat.value;
+    paintItemCategory(cat);
+    updateItemsBreakdown();
+  });
   price.addEventListener('input', updateItemsBreakdown);
   name.addEventListener('input', updateItemsBreakdown);
   row.querySelector('.item-remove').addEventListener('click', () => { row.remove(); updateItemsBreakdown(); });
@@ -718,8 +733,13 @@ function updateItemsBreakdown() {
 function onOverallCategoryChange() {
   const sel = $('#f-category');
   const prev = sel.dataset.prev;
+  if (sel.value === MANAGE_VALUE) {
+    sel.value = prev;
+    openCategoryDialog();
+    return;
+  }
   $$('.item-category').forEach(s => {
-    if (s.value === prev) { s.value = sel.value; paintItemCategory(s); }
+    if (s.value === prev) { s.value = sel.value; s.dataset.prev = sel.value; paintItemCategory(s); }
   });
   sel.dataset.prev = sel.value;
   updateItemsBreakdown();
@@ -729,7 +749,7 @@ function onItemsAll() {
   const v = $('#f-category').value;
   const selects = $$('.item-category');
   if (!selects.length) { toast('品目がありません。', 'error'); return; }
-  selects.forEach(s => { s.value = v; paintItemCategory(s); });
+  selects.forEach(s => { s.value = v; s.dataset.prev = v; paintItemCategory(s); });
   updateItemsBreakdown();
   toast(`全品目の種別を「${v}」にしました`);
 }
@@ -738,6 +758,198 @@ function onSumItems() {
   const items = collectItems();
   if (!items.length) { toast('金額の入った品目がありません。', 'error'); return; }
   $('#f-amount').value = String(items.reduce((s, i) => s + i.price, 0));
+}
+
+/* =========================================================
+ * 種別（カテゴリ）の設定
+ * ========================================================= */
+function openCategoryDialog() {
+  state.catEdit = null;
+  $('#cat-error').classList.add('hidden');
+  $('#cat-add-name').value = '';
+  renderCategoryList();
+  const dlg = $('#cat-dialog');
+  if (!dlg.open) dlg.showModal();
+}
+
+function closeCategoryDialog() {
+  $('#cat-dialog').close();
+}
+
+function onCategoryDialogClosed() {
+  state.catEdit = null;
+  if (state.categoriesChanged) {
+    state.categoriesChanged = false;
+    if (state.view === 'dashboard') loadDashboard();
+  }
+}
+
+function renderCategoryList() {
+  const list = state.categories;
+  const movable = list.filter(c => c.name !== FALLBACK_CATEGORY);
+  const ed = state.catEdit;
+
+  $('#cat-list').innerHTML = list.map(c => {
+    const n = escapeHtml(c.name);
+    const isFallback = c.name === FALLBACK_CATEGORY;
+
+    if (ed && ed.name === c.name && ed.mode === 'edit') {
+      return `<li class="py-3" data-name="${n}">
+          <div class="flex items-center gap-2">
+            <input type="color" class="cat-edit-color h-10 w-12 shrink-0 cursor-pointer rounded border border-rule bg-white p-1" value="${escapeHtml(c.color)}" aria-label="色">
+            <input type="text" class="cat-edit-name field min-w-0 flex-1" maxlength="20" value="${n}" aria-label="名前" ${isFallback ? 'disabled' : ''}>
+          </div>
+          <div class="mt-2 flex justify-end gap-2">
+            <button type="button" data-cat-act="cancel" class="rounded-md border border-rule px-3 py-1.5 text-sm">やめる</button>
+            <button type="button" data-cat-act="save" class="rounded-md bg-ink px-3 py-1.5 text-sm font-medium text-white">変更を保存</button>
+          </div>
+        </li>`;
+    }
+
+    if (ed && ed.name === c.name && ed.mode === 'delete') {
+      const options = list.filter(x => x.name !== c.name)
+        .map(x => `<option value="${escapeHtml(x.name)}" ${x.name === FALLBACK_CATEGORY ? 'selected' : ''}>${escapeHtml(x.name)}</option>`).join('');
+      return `<li class="py-3" data-name="${n}">
+          <p class="text-sm">「${n}」を削除します。この種別で登録済みの支出と品目は、次の種別に移します。</p>
+          <label class="mt-2 flex items-center gap-2 text-sm">
+            <span class="shrink-0 text-mute">移動先</span>
+            <select class="cat-move-to field py-2">${options}</select>
+          </label>
+          <div class="mt-2 flex justify-end gap-2">
+            <button type="button" data-cat-act="cancel" class="rounded-md border border-rule px-3 py-1.5 text-sm">やめる</button>
+            <button type="button" data-cat-act="confirm-delete" class="rounded-md bg-shu px-3 py-1.5 text-sm font-medium text-white">削除する</button>
+          </div>
+        </li>`;
+    }
+
+    const i = movable.findIndex(x => x.name === c.name);
+    const upDisabled = isFallback || i <= 0;
+    const downDisabled = isFallback || i >= movable.length - 1;
+    return `<li class="flex items-center gap-2 py-2.5" data-name="${n}">
+        <span class="h-4 w-4 shrink-0 rounded" style="background:${escapeHtml(c.color)}"></span>
+        <span class="min-w-0 flex-1 truncate">${n}</span>
+        <button type="button" data-cat-act="up" class="rounded-md px-2 py-1 text-mute hover:text-ink disabled:opacity-25" aria-label="「${n}」を上へ" ${upDisabled ? 'disabled' : ''}>↑</button>
+        <button type="button" data-cat-act="down" class="rounded-md px-2 py-1 text-mute hover:text-ink disabled:opacity-25" aria-label="「${n}」を下へ" ${downDisabled ? 'disabled' : ''}>↓</button>
+        <button type="button" data-cat-act="edit" class="rounded-md border border-rule px-2 py-1.5 text-xs hover:border-ink">編集</button>
+        ${isFallback
+          ? '<span class="w-[2.6rem]"></span>'
+          : `<button type="button" data-cat-act="delete" class="rounded-md px-2 py-1.5 text-xs text-shu hover:bg-shu hover:text-white">削除</button>`}
+      </li>`;
+  }).join('');
+
+  const focusEl = $('#cat-list .cat-edit-name:not([disabled])') || $('#cat-list .cat-edit-color') || $('#cat-list .cat-move-to');
+  if (focusEl) focusEl.focus();
+}
+
+/** 種別一覧が変わったとき、フォームの選択欄をすべて作り直す（rename: {旧名: 新名}） */
+function applyCategories(categories, rename = {}) {
+  state.categories = categories;
+  state.categoriesChanged = true;
+  const valid = v => state.categories.some(c => c.name === v) ? v : FALLBACK_CATEGORY;
+  const fix = v => valid(rename[v] ?? v);
+
+  const f = $('#f-category');
+  const fv = fix(f.value);
+  f.innerHTML = categoryOptionsHtml();
+  f.value = fv;
+  f.dataset.prev = fv;
+
+  $$('.item-category').forEach(sel => {
+    const v = fix(sel.value);
+    sel.innerHTML = categoryOptionsHtml();
+    sel.value = v;
+    sel.dataset.prev = v;
+    paintItemCategory(sel);
+  });
+  updateItemsBreakdown();
+  renderCategoryList();
+}
+
+async function categoryRequest(action, payload, rename) {
+  const dlg = $('#cat-dialog');
+  $('#cat-error').classList.add('hidden');
+  dlg.classList.add('opacity-60', 'pointer-events-none');
+  dlg.setAttribute('aria-busy', 'true');
+  try {
+    const data = await api(action, payload);
+    state.catEdit = null;
+    applyCategories(data.categories, rename);
+    return data;
+  } catch (err) {
+    const el = $('#cat-error');
+    el.textContent = err.message;
+    el.classList.remove('hidden');
+    return null;
+  } finally {
+    dlg.classList.remove('opacity-60', 'pointer-events-none');
+    dlg.removeAttribute('aria-busy');
+  }
+}
+
+async function onCategoryListClick(e) {
+  const btn = e.target.closest('[data-cat-act]');
+  if (!btn) return;
+  const li = btn.closest('li');
+  const name = li.dataset.name;
+  const act = btn.dataset.catAct;
+
+  if (act === 'edit' || act === 'delete') {
+    state.catEdit = { name, mode: act };
+    $('#cat-error').classList.add('hidden');
+    renderCategoryList();
+    return;
+  }
+  if (act === 'cancel') {
+    state.catEdit = null;
+    renderCategoryList();
+    return;
+  }
+
+  if (act === 'up' || act === 'down') {
+    const names = state.categories.map(c => c.name).filter(n => n !== FALLBACK_CATEGORY);
+    const i = names.indexOf(name);
+    const j = act === 'up' ? i - 1 : i + 1;
+    if (i < 0 || j < 0 || j >= names.length) return;
+    [names[i], names[j]] = [names[j], names[i]];
+    await categoryRequest('reorderCategories', { names });
+    return;
+  }
+
+  if (act === 'save') {
+    const newName = li.querySelector('.cat-edit-name').value.trim();
+    const color = li.querySelector('.cat-edit-color').value;
+    if (!newName) {
+      $('#cat-error').textContent = '種別の名前を入力してください。';
+      $('#cat-error').classList.remove('hidden');
+      return;
+    }
+    const data = await categoryRequest('updateCategory', { oldName: name, name: newName, color }, { [name]: newName });
+    if (data) toast(data.changedExpenses ? `変更しました（${data.changedExpenses}件の支出も更新）` : '変更しました');
+    return;
+  }
+
+  if (act === 'confirm-delete') {
+    const moveTo = li.querySelector('.cat-move-to').value;
+    const data = await categoryRequest('deleteCategory', { name, moveTo }, { [name]: moveTo });
+    if (data) toast(data.changedExpenses ? `削除しました（${data.changedExpenses}件の支出を「${moveTo}」に移動）` : '削除しました');
+  }
+}
+
+async function onCategoryAdd(e) {
+  e.preventDefault();
+  const name = $('#cat-add-name').value.trim();
+  const color = $('#cat-add-color').value;
+  if (!name) {
+    $('#cat-error').textContent = '追加する種別の名前を入力してください。';
+    $('#cat-error').classList.remove('hidden');
+    $('#cat-add-name').focus();
+    return;
+  }
+  const data = await categoryRequest('addCategory', { name, color });
+  if (data) {
+    $('#cat-add-name').value = '';
+    toast(`「${name}」を追加しました`);
+  }
 }
 
 /* ---- 保存 ---- */
@@ -930,6 +1142,13 @@ function bindEvents() {
   $('#btn-sum-items').addEventListener('click', onSumItems);
   $('#btn-items-all').addEventListener('click', onItemsAll);
   $('#f-category').addEventListener('change', onOverallCategoryChange);
+
+  $('#btn-open-categories').addEventListener('click', openCategoryDialog);
+  $('#cat-close').addEventListener('click', closeCategoryDialog);
+  $('#cat-dialog').addEventListener('close', onCategoryDialogClosed);
+  $('#cat-dialog').addEventListener('click', e => { if (e.target === e.currentTarget) closeCategoryDialog(); });
+  $('#cat-list').addEventListener('click', onCategoryListClick);
+  $('#cat-add-form').addEventListener('submit', onCategoryAdd);
   $('#entry-form').addEventListener('submit', onSave);
   $('#btn-cancel').addEventListener('click', onCancel);
 }
