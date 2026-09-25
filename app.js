@@ -6,6 +6,7 @@
 const API_URL = 'https://script.google.com/macros/s/AKfycbzJmO3WWtFMzSEMQupzHG-5jUGSKBrtI3q5vXYVLOLPwjZuMd0HcZBLjBNeo4ovArmV/exec';
 
 const STORAGE_KEY = 'receiptKakeibo.session';
+const PERIOD_KEY = 'receiptKakeibo.period';
 const IMAGE_MAX_SIDE = 1600;
 const IMAGE_QUALITY = 0.85;
 const LIST_PAGE = 20;
@@ -27,6 +28,7 @@ const state = {
   mode: 'receipt',        // receipt | manual
   editingId: null,
   trendMonths: 6,
+  period: { preset: 'month', from: null, to: null },
   listLimit: LIST_PAGE,
   expenses: new Map(),
   incomeMonth: null,        // 'YYYY-MM'
@@ -404,40 +406,145 @@ function onPasswordBack() {
  * ========================================================= */
 async function loadDashboard() {
   try {
-    const [summary, list] = await Promise.all([
+    const [period, trend, list] = await Promise.all([
+      api('getSummary', periodRange()),
       api('getSummary', { months: state.trendMonths }),
       api('listExpenses', { limit: state.listLimit })
     ]);
-    renderSummary(summary);
+    renderPeriod(period);
+    renderTrendSection(trend);
     renderList(list);
   } catch (err) {
-    if (err.code !== 'AUTH') toast(err.message, 'error');
+    if (err.code !== 'AUTH' && err.code !== 'MUST_CHANGE') toast(err.message, 'error');
   }
 }
 
-function renderSummary(s) {
-  const cur = s.current;
-  $('#dash-month-label').textContent = `${monthLabel(cur.month)}の支出（${cur.count}件）`;
-  $('#dash-total').textContent = yen.format(cur.total);
+/* ---- 集計期間 ---- */
+function loadPeriodPref() {
+  try {
+    const p = JSON.parse(localStorage.getItem(PERIOD_KEY) || 'null');
+    if (p && p.preset) state.period = p;
+  } catch (e) { /* noop */ }
+}
 
-  const prev = s.previous.total;
-  const diff = cur.total - prev;
-  let compare = '';
-  if (prev > 0) {
+function savePeriodPref() {
+  try { localStorage.setItem(PERIOD_KEY, JSON.stringify(state.period)); } catch (e) { /* noop */ }
+}
+
+/** 選択中の期間を { from, to }（'YYYY-MM'）にする */
+function periodRange() {
+  const cur = currentMonthKey();
+  const p = state.period;
+  switch (p.preset) {
+    case 'lastMonth': { const m = shiftMonth(cur, -1); return { from: m, to: m }; }
+    case '3':  return { from: shiftMonth(cur, -2), to: cur };
+    case '6':  return { from: shiftMonth(cur, -5), to: cur };
+    case '12': return { from: shiftMonth(cur, -11), to: cur };
+    case 'year': return { from: `${cur.slice(0, 4)}-01`, to: cur };
+    case 'custom':
+      if (p.from && p.to) return p.from <= p.to ? { from: p.from, to: p.to } : { from: p.to, to: p.from };
+      return { from: shiftMonth(cur, -5), to: cur };
+    default: return { from: cur, to: cur };
+  }
+}
+
+function rangeLabel(from, to) {
+  if (from === to) return monthLabel(from);
+  const [y1, m1] = from.split('-').map(Number);
+  const [y2, m2] = to.split('-').map(Number);
+  return y1 === y2 ? `${y1}年${m1}月〜${m2}月` : `${y1}年${m1}月〜${y2}年${m2}月`;
+}
+
+function syncPeriodControls() {
+  const preset = state.period.preset;
+  setPressed($$('[data-period]'), b => b.dataset.period === preset);
+  const custom = preset === 'custom';
+  $('#period-custom').classList.toggle('hidden', !custom);
+  if (custom) {
+    const r = periodRange();
+    $('#period-from').value = r.from;
+    $('#period-to').value = r.to;
+  }
+}
+
+async function reloadPeriod() {
+  syncPeriodControls();
+  savePeriodPref();
+  try {
+    renderPeriod(await api('getSummary', periodRange()));
+  } catch (err) {
+    if (err.code !== 'AUTH' && err.code !== 'MUST_CHANGE') toast(err.message, 'error');
+  }
+}
+
+function onPeriodClick(e) {
+  const preset = e.currentTarget.dataset.period;
+  if (preset === 'custom') {
+    const r = periodRange();
+    state.period = { preset: 'custom', from: r.from, to: r.to };
+    syncPeriodControls();
+    $('#period-from').focus();
+    return;
+  }
+  state.period = { preset, from: null, to: null };
+  reloadPeriod();
+}
+
+function onPeriodCustomSubmit(e) {
+  e.preventDefault();
+  const from = $('#period-from').value;
+  const to = $('#period-to').value;
+  if (!/^\d{4}-\d{2}$/.test(from) || !/^\d{4}-\d{2}$/.test(to)) {
+    toast('開始月と終了月を選んでください。', 'error');
+    return;
+  }
+  state.period = { preset: 'custom', from: from <= to ? from : to, to: from <= to ? to : from };
+  reloadPeriod();
+}
+
+/* ---- 期間の合計（上部） ---- */
+function renderPeriod(s) {
+  const p = s.period;
+  const prev = s.previousPeriod;
+  const single = p.monthsCount === 1;
+  const label = rangeLabel(p.from, p.to);
+
+  $('#dash-month-label').textContent = `${label}の支出（${p.count}件）`;
+  $('#dash-total').textContent = yen.format(p.total);
+
+  const prevLabel = single ? monthLabel(prev.from) : `その前の${p.monthsCount}か月（${rangeLabel(prev.from, prev.to)}）`;
+  const diff = p.total - prev.total;
+  let compare;
+  if (prev.total > 0) {
     compare = diff === 0
-      ? `先月（${monthLabel(s.previous.month)}）と同じです。`
-      : `先月の ¥${yen.format(prev)} より ¥${yen.format(Math.abs(diff))} ${diff > 0 ? '多く使っています' : '少なく済んでいます'}。`;
+      ? `${prevLabel}と同じです。`
+      : `${prevLabel}の ¥${yen.format(prev.total)} より ¥${yen.format(Math.abs(diff))} ${diff > 0 ? '多く使っています' : '少なく済んでいます'}。`;
   } else {
-    compare = `先月（${monthLabel(s.previous.month)}）の記録はありません。`;
+    compare = `${prevLabel}の支出の記録はありません。`;
   }
   $('#dash-compare').textContent = compare;
 
-  $('#dash-income').textContent = `¥${yen.format(cur.income)}`;
-  $('#dash-expense').textContent = `¥${yen.format(cur.total)}`;
-  setBalance($('#dash-balance'), cur.balance);
-  $('#dash-income-hint').classList.toggle('hidden', cur.income > 0);
+  $('#dash-income').textContent = `¥${yen.format(p.income)}`;
+  $('#dash-expense').textContent = `¥${yen.format(p.total)}`;
+  setBalance($('#dash-balance'), p.balance);
 
-  renderDonut(cur.byCategory, cur.total);
+  const avg = $('#dash-average');
+  avg.classList.toggle('hidden', single);
+  if (!single) {
+    avg.textContent = `${p.monthsCount}か月の月平均　支出 ¥${yen.format(p.avgExpense)}　収入 ¥${yen.format(p.avgIncome)}　収支 ${signedYen(p.avgIncome - p.avgExpense)}`;
+  }
+
+  $('#dash-income-hint-text').textContent = single
+    ? `${label}の収入がまだ入力されていません。`
+    : 'この期間の収入がまだ入力されていません。';
+  $('#dash-income-hint').classList.toggle('hidden', p.income > 0);
+  if (single) state.incomeMonth = p.from; // 「収入を入力する」でその月を開く
+
+  renderDonut(p.byCategory, p.total);
+}
+
+/* ---- 月ごとの推移（グラフ＋表） ---- */
+function renderTrendSection(s) {
   renderTrend(s);
   renderTrendTable(s);
 }
@@ -1377,11 +1484,14 @@ function bindEvents() {
     state.trendMonths = Number(b.dataset.months);
     setPressed($$('[data-months]'), x => x === b);
     try {
-      renderSummary(await api('getSummary', { months: state.trendMonths }));
+      renderTrendSection(await api('getSummary', { months: state.trendMonths }));
     } catch (err) {
-      if (err.code !== 'AUTH') toast(err.message, 'error');
+      if (err.code !== 'AUTH' && err.code !== 'MUST_CHANGE') toast(err.message, 'error');
     }
   }));
+
+  $$('[data-period]').forEach(b => b.addEventListener('click', onPeriodClick));
+  $('#period-custom').addEventListener('submit', onPeriodCustomSubmit);
 
   $('#btn-more').addEventListener('click', async () => {
     state.listLimit += LIST_PAGE;
@@ -1428,6 +1538,8 @@ function setupChartDefaults() {
 async function init() {
   setupChartDefaults();
   bindEvents();
+  loadPeriodPref();
+  syncPeriodControls();
 
   if (!loadSession()) { showAuth(); return; }
 

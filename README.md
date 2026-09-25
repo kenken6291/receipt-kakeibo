@@ -165,6 +165,14 @@ receipt-kakeibo/
 
 ---
 
+### 集計期間
+- 「家計のようす」の一番上で、**今月／先月／3か月／6か月／12か月／今年／期間を指定** を選べます（選んだ期間は次回も保持）。
+- 選んだ期間の **支出合計・収入合計・収支・件数・種別ごとの内訳（ドーナツ）** を表示し、直前の同じ長さの期間と比較します。
+- 2か月以上の期間では **月平均**（支出・収入・収支）も表示します。
+- 下の「月ごとの推移」は 6／12／24か月 で別に切り替えられ、表の右端に期間合計が出ます。
+
+---
+
 ## 5. 種別（カテゴリ）の設定
 
 - 画面上部の「種別の設定」、または入力画面の種別の選択肢の一番下「＋ 種別を追加・編集…」から開きます（入力中の内容は消えません）。
@@ -227,7 +235,7 @@ receipt-kakeibo/
 | `saveExpense` | ○ | `{id?, date, store, category, amount, memo, items, imageUrl}` | `{id}` |
 | `deleteExpense` | ○ | `{id}` | `{id}` |
 | `listExpenses` | ○ | `{limit?, month?}` | `{items, total}` |
-| `getSummary` | ○ | `{months}`（1〜24） | `{months, series, monthTotals, incomeTotals, balances, current, previous}` |
+| `getSummary` | ○ | `{from, to}`（YYYY-MM、最大36か月）または `{months}` | `{months, series, monthTotals, incomeTotals, balances, period, previousPeriod, current}` |
 | `listIncomes` | ○ | `{month}` | `{month, items, income, expense, balance, sources}` |
 | `saveIncome` | ○ | `{id?, month, source, amount, memo}` | `{id}` |
 | `deleteIncome` | ○ | `{id}` | `{id}` |

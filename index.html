@@ -236,8 +236,28 @@
     <main class="max-w-3xl mx-auto px-4 pb-24">
 
       <!-- ---------- ダッシュボード ---------- -->
-      <section id="view-dashboard" class="hidden pt-8">
-        <div>
+      <section id="view-dashboard" class="hidden pt-6">
+        <div class="-mx-4 px-4 overflow-x-auto">
+          <div class="seg inline-flex rounded-lg border border-rule bg-white p-0.5 text-xs whitespace-nowrap" role="group" aria-label="集計期間">
+            <button type="button" data-period="month" class="rounded-md px-3 py-1.5" aria-pressed="true">今月</button>
+            <button type="button" data-period="lastMonth" class="rounded-md px-3 py-1.5" aria-pressed="false">先月</button>
+            <button type="button" data-period="3" class="rounded-md px-3 py-1.5" aria-pressed="false">3か月</button>
+            <button type="button" data-period="6" class="rounded-md px-3 py-1.5" aria-pressed="false">6か月</button>
+            <button type="button" data-period="12" class="rounded-md px-3 py-1.5" aria-pressed="false">12か月</button>
+            <button type="button" data-period="year" class="rounded-md px-3 py-1.5" aria-pressed="false">今年</button>
+            <button type="button" data-period="custom" class="rounded-md px-3 py-1.5" aria-pressed="false">期間を指定</button>
+          </div>
+        </div>
+        <form id="period-custom" class="hidden mt-3 flex flex-wrap items-center gap-2 text-sm" novalidate>
+          <label class="sr-only" for="period-from">開始月</label>
+          <input id="period-from" type="month" class="field w-40 py-2 num">
+          <span class="text-mute">〜</span>
+          <label class="sr-only" for="period-to">終了月</label>
+          <input id="period-to" type="month" class="field w-40 py-2 num">
+          <button type="submit" class="rounded-lg bg-ink px-4 py-2 font-medium text-white">表示</button>
+        </form>
+
+        <div class="mt-7">
           <p id="dash-month-label" class="text-mute">今月の支出</p>
           <p class="mt-1 flex items-baseline gap-1">
             <span class="font-mincho text-2xl">¥</span>
@@ -247,11 +267,11 @@
 
           <dl class="mt-6 grid grid-cols-3 max-w-lg rounded-lg border border-rule bg-white text-sm">
             <div class="px-3 py-3 sm:px-4">
-              <dt class="text-xs text-mute">今月の収入</dt>
+              <dt class="text-xs text-mute">収入</dt>
               <dd id="dash-income" class="num mt-1 font-medium">¥0</dd>
             </div>
             <div class="px-3 py-3 sm:px-4 border-l border-rule">
-              <dt class="text-xs text-mute">今月の支出</dt>
+              <dt class="text-xs text-mute">支出</dt>
               <dd id="dash-expense" class="num mt-1 font-medium">¥0</dd>
             </div>
             <div class="px-3 py-3 sm:px-4 border-l border-rule">
@@ -259,16 +279,17 @@
               <dd id="dash-balance" class="num mt-1 text-lg font-bold">¥0</dd>
             </div>
           </dl>
+          <p id="dash-average" class="hidden mt-2 text-xs text-mute num"></p>
           <p id="dash-income-hint" class="hidden mt-2 text-xs text-mute">
-            今月の収入がまだ入力されていません。
+            <span id="dash-income-hint-text">この期間の収入がまだ入力されていません。</span>
             <button type="button" data-nav="income" class="text-ai underline underline-offset-4">収入を入力する</button>
           </p>
         </div>
 
         <div class="mt-10 grid md:grid-cols-[minmax(0,15rem)_1fr] gap-8 items-center">
           <div class="relative h-56 md:h-60">
-            <canvas id="chart-donut" aria-label="今月のカテゴリ別内訳"></canvas>
-            <p id="donut-empty" class="hidden absolute inset-0 flex items-center justify-center text-center text-sm text-mute px-6">今月の記録はまだありません。</p>
+            <canvas id="chart-donut" aria-label="期間の種別ごとの内訳"></canvas>
+            <p id="donut-empty" class="hidden absolute inset-0 flex items-center justify-center text-center text-sm text-mute px-6">この期間の支出の記録はまだありません。</p>
           </div>
           <ul id="dash-legend" class="divide-y divide-rule text-sm"></ul>
         </div>
@@ -276,9 +297,10 @@
         <div class="mt-14">
           <div class="flex items-end justify-between gap-4">
             <h2 class="text-lg font-bold">月ごとの推移</h2>
-            <div class="seg grid grid-cols-2 rounded-lg border border-rule bg-white p-0.5 text-xs" role="group" aria-label="表示期間">
+            <div class="seg grid grid-cols-3 rounded-lg border border-rule bg-white p-0.5 text-xs" role="group" aria-label="推移の表示期間">
               <button type="button" data-months="6" class="rounded-md px-3 py-1.5" aria-pressed="true">6か月</button>
               <button type="button" data-months="12" class="rounded-md px-3 py-1.5" aria-pressed="false">12か月</button>
+              <button type="button" data-months="24" class="rounded-md px-3 py-1.5" aria-pressed="false">24か月</button>
             </div>
           </div>
           <div class="mt-4 h-72 bg-white rounded-lg border border-rule p-3">
