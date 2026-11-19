@@ -498,6 +498,13 @@
     </main>
   </div>
 
+  <!-- バージョン情報 -->
+  <footer class="mx-auto max-w-5xl px-4 pt-10 pb-8 text-center text-xs text-mute leading-relaxed">
+    フロント <code id="ver-front">-</code>
+    <span class="mx-1">/</span> GAS <code id="ver-gas">-</code>
+    <span class="mx-1">/</span> AIモデル <code id="ver-model">-</code>
+  </footer>
+
   <!-- 種別（カテゴリ）の設定 -->
   <dialog id="cat-dialog" class="w-[min(32rem,calc(100vw-1.5rem))] max-h-[88vh] overflow-y-auto rounded-xl bg-white p-0 text-ink shadow-2xl backdrop:bg-ink/40">
     <div class="p-5 sm:p-6">
@@ -533,6 +540,7 @@
   <!-- 通知 -->
   <div id="toast" class="hidden fixed left-1/2 -translate-x-1/2 bottom-6 z-50 max-w-[90vw] rounded-lg px-4 py-3 text-sm shadow-lg" role="status" aria-live="polite"></div>
 
+  <script src="config.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

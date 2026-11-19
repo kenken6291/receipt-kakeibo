@@ -1,9 +1,11 @@
 'use strict';
 
 /* =========================================================
- * 設定：GASのWebアプリURL（/exec で終わるもの）に置き換える
+ * 設定：GAS URL・バージョン・Geminiモデルは config.js で管理
  * ========================================================= */
-const API_URL = 'https://script.google.com/macros/s/AKfycbzJmO3WWtFMzSEMQupzHG-5jUGSKBrtI3q5vXYVLOLPwjZuMd0HcZBLjBNeo4ovArmV/exec';
+const APP_CONFIG = window.APP_CONFIG || {};
+const API_URL = APP_CONFIG.GAS_EXEC_URL || '';
+const APP_VERSION = APP_CONFIG.APP_VERSION || '-';
 
 const STORAGE_KEY = 'receiptKakeibo.session';
 const PERIOD_KEY = 'receiptKakeibo.period';
@@ -16,15 +18,10 @@ const MANAGE_VALUE = '__manage__';   // 選択肢の「＋ 種別を追加・編
 /* Geminiモデルの選択肢（value がAPIのモデルID。'' = 自動）
  * 指定モデルに該当がない（廃止・未公開・名前違い）場合は、GAS側で汎用の最新モデルへ自動で切り替わる */
 const MODEL_KEY = 'receiptKakeibo.geminiModel';
-const GEMINI_MODEL_OPTIONS = [
-  { value: '',                  label: '自動モード（汎用の最新）' },
-  { value: 'gemini-4-hydrogen', label: '4 Hydrogen（日々の暮らしをサポート）' },
-  { value: 'gemini-4-neon',     label: '4 Neon（Deeper analysis）' },
-  { value: 'gemini-4-carbon',   label: '4 Carbon（Code & complex work）' },
-  { value: 'gemini-4-argon',    label: '4 Argon' },
-  { value: 'gemini-3.8-flash',  label: '3.8 Flash' },
-  { value: 'gemini-3.5-flash',  label: '3.5 Flash' }
-];
+const DEFAULT_GEMINI_MODEL = APP_CONFIG.GEMINI_MODEL || '';
+const GEMINI_MODEL_OPTIONS = Array.isArray(APP_CONFIG.GEMINI_MODEL_OPTIONS) && APP_CONFIG.GEMINI_MODEL_OPTIONS.length
+  ? APP_CONFIG.GEMINI_MODEL_OPTIONS
+  : [{ value: '', label: '自動モード（汎用の最新）' }];
 
 const yen = new Intl.NumberFormat('ja-JP');
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -49,15 +46,16 @@ const state = {
   catEdit: null,            // { name, mode: 'edit' | 'delete' }
   categoriesChanged: false,
   charts: { donut: null, trend: null },
-  model: ''                // 選択中のGeminiモデル（'' = 自動）
+  model: '',               // 選択中のGeminiモデル（'' = 自動）
+  defaultModel: ''         // 自動モード時にGASが使うモデル（getVersionで取得）
 };
 
 /* =========================================================
  * API
  * ========================================================= */
 async function api(action, payload = {}) {
-  if (API_URL.includes('XXXXXXXX')) {
-    throw new Error('app.js の API_URL をGASのWebアプリURLに書き換えてください。');
+  if (!API_URL || API_URL.includes('XXXXXXXX')) {
+    throw new Error('config.js の GAS_EXEC_URL をGASのWebアプリURLに書き換えてください。');
   }
   let res;
   try {
@@ -1418,7 +1416,7 @@ function modelLabel(value) {
 function setupModelPicker() {
   let saved = null;
   try { saved = localStorage.getItem(MODEL_KEY); } catch (e) { /* ignore */ }
-  state.model = (saved !== null && GEMINI_MODEL_OPTIONS.some(o => o.value === saved)) ? saved : '';
+  state.model = (saved !== null && GEMINI_MODEL_OPTIONS.some(o => o.value === saved)) ? saved : DEFAULT_GEMINI_MODEL;
 
   const sel = $('#model-select');
   if (!sel) return;
@@ -1434,7 +1432,30 @@ function setupModelPicker() {
     state.model = sel.value;
     try { localStorage.setItem(MODEL_KEY, state.model); } catch (e) { /* ignore */ }
     $('#model-used').classList.add('hidden');
+    renderVersionModel();
   });
+}
+
+/* ---------- バージョン情報（画面下部） ---------- */
+function renderVersionModel(used) {
+  const el = $('#ver-model');
+  if (!el) return;
+  if (used) { el.textContent = used; return; }
+  el.textContent = state.model ? modelLabel(state.model)
+    : (state.defaultModel ? '自動（' + state.defaultModel + '）' : modelLabel(''));
+}
+
+async function loadVersionInfo() {
+  $('#ver-front').textContent = APP_VERSION;
+  renderVersionModel();
+  try {
+    const v = await api('getVersion');
+    $('#ver-gas').textContent = v.gasVersion || '-';
+    state.defaultModel = v.defaultModel || '';
+    renderVersionModel();
+  } catch (e) {
+    $('#ver-gas').textContent = '取得できません';
+  }
 }
 
 function showUsedModel(res) {
@@ -1444,6 +1465,7 @@ function showUsedModel(res) {
     ? '使用モデル：' + res.model + '（' + (res.requestedModel || '指定モデル') + ' が使えなかったため自動で切替）'
     : '使用モデル：' + res.model;
   el.classList.remove('hidden');
+  renderVersionModel(res.model);
 }
 
 async function onFileSelected(e) {
@@ -1591,6 +1613,7 @@ async function init() {
   setupChartDefaults();
   bindEvents();
   setupModelPicker();
+  loadVersionInfo();
   loadPeriodPref();
   syncPeriodControls();
 

@@ -6,6 +6,7 @@ GitHub Pages（フロント）＋ Google Apps Script（API）＋ Googleスプレ
 receipt-kakeibo/
 ├─ frontend/          ← GitHub Pages に置く
 │   ├─ index.html
+│   ├─ config.js     ← GAS URL・バージョン・Geminiモデルの設定
 │   └─ app.js
 └─ gas/               ← Apps Script に貼る
     ├─ Code.gs
@@ -128,7 +129,7 @@ receipt-kakeibo/
 3. **`testGeminiConnection`** を実行し、ログが `200 …接続OK…` になればGemini連携もOK。
 4. **`testGeminiModels`** を実行すると、画面の選択肢にある各モデルが使えるか（○／×）を一覧で確認できます。
 
-> **AIモデルの選択**：「支出を記録 → レシートから」の下で、読み取りに使うGeminiモデル（自動／4 Hydrogen／4 Neon／4 Carbon／4 Argon／3.8 Flash／3.5 Flash）を選べます。選択は端末ごとに保存されます。選んだモデルが使えない場合は汎用の最新モデルに自動で切り替わり、実際に使ったモデルが画面に表示されます。
+> **AIモデルの選択**：「支出を記録 → レシートから」の下で、読み取りに使うGeminiモデル（自動／4 Hydrogen／4 Neon／4 Carbon／4 Argon／3.8 Flash／3.5 Flash）を選べます。選択は端末ごとに保存されます。画面の一番下に、フロント／GASのバージョンと使用中のAIモデルが表示されます。選んだモデルが使えない場合は汎用の最新モデルに自動で切り替わり、実際に使ったモデルが画面に表示されます。
 4. **`testSendMail`** を実行。メール送信の権限を承認すると、自分宛てにテストメールが届きます（仮パスワードのメールはこのGoogleアカウントから送信されます）。
 
 > 以前のバージョンから更新する場合も `setup()` をもう一度実行してください。Users・Sessionsシートのヘッダーに新しい列が追加されます（既存データはそのまま使えます）。
@@ -148,11 +149,11 @@ receipt-kakeibo/
 
 ## 3. フロントエンド（GitHub Pages）の設定
 
-1. `frontend/app.js` 冒頭の `API_URL` を 2-6 のURLに書き換える。
+1. `config.js` の `GAS_EXEC_URL` を 2-6 のURLに書き換える（バージョン `APP_VERSION` とGeminiモデルの選択肢 `GEMINI_MODEL_OPTIONS` もここで管理）。
    ```js
-   const API_URL = 'https://script.google.com/macros/s/AKfy..../exec';
+   GAS_EXEC_URL: 'https://script.google.com/macros/s/AKfy..../exec',
    ```
-2. `index.html` と `app.js` をリポジトリ（例：`kenken6291/receipt-kakeibo`）のルートに置いてpush。
+2. `index.html`・`config.js`・`app.js` をリポジトリ（例：`kenken6291/receipt-kakeibo`）のルートに置いてpush。
 3. **Settings → Pages → Branch: main / (root)** で公開。
 4. `https://kenken6291.github.io/receipt-kakeibo/` を開き、新規登録 → レシート撮影で動作確認。
 

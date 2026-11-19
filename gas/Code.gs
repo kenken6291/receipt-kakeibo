@@ -113,7 +113,7 @@ class AppError extends Error {
 // エントリーポイント
 // ============================================================
 function doGet() {
-  return json_({ ok: true, data: { service: 'receipt-kakeibo-api', time: new Date().toISOString() } });
+  return json_({ ok: true, data: { service: 'receipt-kakeibo-api', version: APP.VERSION, time: new Date().toISOString() } });
 }
 
 function doPost(e) {
@@ -151,6 +151,7 @@ function doPost(e) {
 /** auth: 'none' = 認証不要 / 'any' = 仮パスワードログイン中も可 / 'full' = 通常ログインのみ */
 function getRoutes_() {
   return {
+    getVersion:          { auth: 'none', fn: getVersion_ },
     register:            { auth: 'none', fn: register_ },
     requestTempPassword: { auth: 'none', fn: requestTempPassword_ },
     login:               { auth: 'none', fn: login_ },
@@ -885,6 +886,15 @@ function saveReceiptImage_(bytes, mimeType, userId) {
   const name = 'receipt_' + Utilities.formatDate(new Date(), tz, 'yyyyMMdd_HHmmss') + '_' +
     Utilities.getUuid().slice(0, 8) + '.' + ext;
   return folder.createFile(Utilities.newBlob(bytes, mimeType, name));
+}
+
+/** バージョン情報（認証不要。画面下部の表示用） */
+function getVersion_() {
+  return {
+    gasVersion: APP.VERSION,
+    defaultModel: resolveGeminiModel_(''),
+    fallbackModels: FALLBACK_GEMINI_MODELS
+  };
 }
 
 /**
