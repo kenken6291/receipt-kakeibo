@@ -419,6 +419,12 @@
               </div>
             </div>
           </div>
+          <div class="mt-4 max-w-sm">
+            <label for="model-select" class="block text-xs text-mute mb-1 tracking-wide">読み取りに使うAIモデル</label>
+            <select id="model-select" class="rc-input w-full text-sm"></select>
+            <p class="text-xs text-mute mt-1">選んだモデルが使えない時は、汎用の最新モデルに自動で切り替わります</p>
+            <p id="model-used" class="hidden text-xs text-mute mt-1"></p>
+          </div>
           <p id="analyze-warning" class="hidden mt-3 text-sm text-shu" role="status"></p>
         </div>
 

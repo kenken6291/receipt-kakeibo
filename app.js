@@ -13,6 +13,19 @@ const LIST_PAGE = 20;
 const FALLBACK_CATEGORY = 'その他';
 const MANAGE_VALUE = '__manage__';   // 選択肢の「＋ 種別を追加・編集…」
 
+/* Geminiモデルの選択肢（value がAPIのモデルID。'' = 自動）
+ * 指定モデルに該当がない（廃止・未公開・名前違い）場合は、GAS側で汎用の最新モデルへ自動で切り替わる */
+const MODEL_KEY = 'receiptKakeibo.geminiModel';
+const GEMINI_MODEL_OPTIONS = [
+  { value: '',                  label: '自動モード（汎用の最新）' },
+  { value: 'gemini-4-hydrogen', label: '4 Hydrogen（日々の暮らしをサポート）' },
+  { value: 'gemini-4-neon',     label: '4 Neon（Deeper analysis）' },
+  { value: 'gemini-4-carbon',   label: '4 Carbon（Code & complex work）' },
+  { value: 'gemini-4-argon',    label: '4 Argon' },
+  { value: 'gemini-3.8-flash',  label: '3.8 Flash' },
+  { value: 'gemini-3.5-flash',  label: '3.5 Flash' }
+];
+
 const yen = new Intl.NumberFormat('ja-JP');
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
@@ -35,7 +48,8 @@ const state = {
   incomes: new Map(),
   catEdit: null,            // { name, mode: 'edit' | 'delete' }
   categoriesChanged: false,
-  charts: { donut: null, trend: null }
+  charts: { donut: null, trend: null },
+  model: ''                // 選択中のGeminiモデル（'' = 自動）
 };
 
 /* =========================================================
@@ -1395,6 +1409,43 @@ function fileToJpeg(file) {
   });
 }
 
+/* ---------- AIモデル選択 ---------- */
+function modelLabel(value) {
+  const opt = GEMINI_MODEL_OPTIONS.find(o => o.value === value);
+  return opt ? opt.label : (value || GEMINI_MODEL_OPTIONS[0].label);
+}
+
+function setupModelPicker() {
+  let saved = null;
+  try { saved = localStorage.getItem(MODEL_KEY); } catch (e) { /* ignore */ }
+  state.model = (saved !== null && GEMINI_MODEL_OPTIONS.some(o => o.value === saved)) ? saved : '';
+
+  const sel = $('#model-select');
+  if (!sel) return;
+  sel.innerHTML = '';
+  GEMINI_MODEL_OPTIONS.forEach(o => {
+    const opt = document.createElement('option');
+    opt.value = o.value;
+    opt.textContent = o.label;
+    sel.appendChild(opt);
+  });
+  sel.value = state.model;
+  sel.addEventListener('change', () => {
+    state.model = sel.value;
+    try { localStorage.setItem(MODEL_KEY, state.model); } catch (e) { /* ignore */ }
+    $('#model-used').classList.add('hidden');
+  });
+}
+
+function showUsedModel(res) {
+  const el = $('#model-used');
+  if (!el || !res || !res.model) return;
+  el.textContent = res.fallback
+    ? '使用モデル：' + res.model + '（' + (res.requestedModel || '指定モデル') + ' が使えなかったため自動で切替）'
+    : '使用モデル：' + res.model;
+  el.classList.remove('hidden');
+}
+
 async function onFileSelected(e) {
   const input = e.target;
   const file = input.files && input.files[0];
@@ -1418,8 +1469,9 @@ async function onFileSelected(e) {
 
   setOverlay(true, 'レシートを読み取っています…');
   try {
-    const res = await api('analyzeReceipt', { imageBase64: img.base64, mimeType: img.mimeType });
+    const res = await api('analyzeReceipt', { imageBase64: img.base64, mimeType: img.mimeType, model: state.model });
     const p = res.parsed;
+    showUsedModel(res);
     fillForm({
       id: '',
       date: p?.date || todayStr(),
@@ -1538,6 +1590,7 @@ function setupChartDefaults() {
 async function init() {
   setupChartDefaults();
   bindEvents();
+  setupModelPicker();
   loadPeriodPref();
   syncPeriodControls();
 

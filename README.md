@@ -120,12 +120,15 @@ receipt-kakeibo/
 | `DRIVE_FOLDER_ID` | 2-2のフォルダID | ○ |
 | `APP_URL` | GitHub PagesのURL（例 `https://kenken6291.github.io/receipt-kakeibo/`）。仮パスワードのメールに載ります | 推奨 |
 | `SPREADSHEET_ID` | スタンドアロンGASにした場合のみ、スプレッドシートID | － |
-| `GEMINI_MODEL` | 既定は `gemini-2.5-flash`。変えたいときだけ | － |
+| `GEMINI_MODEL` | 画面で「自動モード」を選んだ時のモデル。未設定なら汎用の最新モデル（`gemini-flash-latest` → `gemini-4-hydrogen` → `gemini-3.8-flash` の順に試す） | － |
 
 ### 2-5. 初期化と動作確認
 1. エディタ上部の関数選択で **`setup`** を選び「実行」。初回は権限の承認を求められるので許可する。
 2. 実行ログに `GEMINI_API_KEY: 設定済み` `DRIVE_FOLDER_ID: 設定済み` とフォルダ名が出ればOK。スプレッドシートに4シートができています。
 3. **`testGeminiConnection`** を実行し、ログが `200 …接続OK…` になればGemini連携もOK。
+4. **`testGeminiModels`** を実行すると、画面の選択肢にある各モデルが使えるか（○／×）を一覧で確認できます。
+
+> **AIモデルの選択**：「支出を記録 → レシートから」の下で、読み取りに使うGeminiモデル（自動／4 Hydrogen／4 Neon／4 Carbon／4 Argon／3.8 Flash／3.5 Flash）を選べます。選択は端末ごとに保存されます。選んだモデルが使えない場合は汎用の最新モデルに自動で切り替わり、実際に使ったモデルが画面に表示されます。
 4. **`testSendMail`** を実行。メール送信の権限を承認すると、自分宛てにテストメールが届きます（仮パスワードのメールはこのGoogleアカウントから送信されます）。
 
 > 以前のバージョンから更新する場合も `setup()` をもう一度実行してください。Users・Sessionsシートのヘッダーに新しい列が追加されます（既存データはそのまま使えます）。
