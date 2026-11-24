@@ -46,6 +46,9 @@ const state = {
   catEdit: null,            // { name, mode: 'edit' | 'delete' }
   categoriesChanged: false,
   charts: { donut: null, trend: null },
+  search: null,            // 明細の検索条件（null = 検索していない）
+  searchLimit: LIST_PAGE,
+  allExpenses: null,       // 検索・Excel出力用に取得した全明細（キャッシュ）
   model: '',               // 選択中のGeminiモデル（'' = 自動）
   defaultModel: ''         // 自動モード時にGASが使うモデル（getVersionで取得）
 };
@@ -417,11 +420,12 @@ function onPasswordBack() {
  * ダッシュボード
  * ========================================================= */
 async function loadDashboard() {
+  state.allExpenses = null; // 登録・編集・削除のあとは取り直す
   try {
     const [period, trend, list] = await Promise.all([
       api('getSummary', periodRange()),
       api('getSummary', { months: state.trendMonths }),
-      api('listExpenses', { limit: state.listLimit })
+      state.search ? searchExpenses() : api('listExpenses', { limit: state.listLimit })
     ]);
     renderPeriod(period);
     renderTrendSection(trend);
@@ -737,9 +741,17 @@ function renderList(list) {
   list.items.forEach(x => state.expenses.set(x.id, x));
 
   const ul = $('#expense-list');
-  $('#list-empty').classList.toggle('hidden', list.total > 0);
-  $('#list-count').textContent = list.total > 0 ? `全${list.total}件` : '';
+  const searching = !!list.search;
+  $('#list-title').textContent = searching ? '検索結果' : '最近の明細';
+  $('#list-empty').classList.toggle('hidden', searching || list.total > 0);
+  $('#search-empty').classList.toggle('hidden', !searching || list.total > 0);
   $('#btn-more').classList.toggle('hidden', list.items.length >= list.total);
+  const summary = $('#search-summary');
+  summary.classList.toggle('hidden', !searching);
+  if (searching) {
+    summary.innerHTML = `<span class="font-medium">${list.total}件</span>　合計 <span class="num font-medium">¥${yen.format(list.sum)}</span>`
+      + `<span class="block text-xs text-mute mt-0.5">${escapeHtml(searchConditionLabel(list.search))}</span>`;
+  }
 
   ul.innerHTML = list.items.map(x => {
     const title = x.store || x.memo || x.category;
@@ -813,7 +825,17 @@ async function deleteExpense(id) {
 /* =========================================================
  * 記録フォーム
  * ========================================================= */
+function renderSearchCategoryOptions() {
+  const sel = $('#s-category');
+  if (!sel) return;
+  const cur = sel.value;
+  sel.innerHTML = '<option value="">すべて</option>' + state.categories
+    .map(c => `<option value="${escapeHtml(c.name)}">${escapeHtml(c.name)}</option>`).join('');
+  sel.value = state.categories.some(c => c.name === cur) ? cur : '';
+}
+
 function renderCategoryOptions() {
+  renderSearchCategoryOptions();
   const sel = $('#f-category');
   const current = sel.value;
   sel.innerHTML = categoryOptionsHtml();
@@ -1239,6 +1261,7 @@ function applyCategories(categories, rename = {}) {
   });
   updateItemsBreakdown();
   renderCategoryList();
+  renderSearchCategoryOptions();
 }
 
 async function categoryRequest(action, payload, rename) {
@@ -1521,6 +1544,252 @@ async function onFileSelected(e) {
   }
 }
 
+
+/* =========================================================
+ * 明細の検索
+ * ========================================================= */
+const ALL_LIMIT = 5000; // GAS側の上限を超える分は返ってこない
+
+/** 全明細を取得（キャッシュあり） */
+async function fetchAllExpenses() {
+  if (state.allExpenses) return state.allExpenses;
+  const res = await api('listExpenses', { limit: ALL_LIMIT });
+  state.allExpenses = res.items || [];
+  if (res.total > state.allExpenses.length) {
+    toast(`明細${res.total}件のうち、新しい${state.allExpenses.length}件が検索・出力の対象です。`, 'error');
+  }
+  return state.allExpenses;
+}
+
+function readSearchForm() {
+  const num = v => (v === '' || v == null) ? null : Math.max(0, Number(v));
+  let from = $('#s-from').value, to = $('#s-to').value;
+  if (from && to && from > to) [from, to] = [to, from];
+  let min = num($('#s-min').value), max = num($('#s-max').value);
+  if (min !== null && max !== null && min > max) [min, max] = [max, min];
+  return {
+    keyword: $('#s-keyword').value.trim(),
+    from, to,
+    category: $('#s-category').value,
+    min, max,
+    receiptOnly: $('#s-receipt').checked
+  };
+}
+
+function isEmptySearch(c) {
+  return !c.keyword && !c.from && !c.to && !c.category && c.min === null && c.max === null && !c.receiptOnly;
+}
+
+function searchConditionLabel(c) {
+  const parts = [];
+  if (c.keyword) parts.push(`「${c.keyword}」`);
+  if (c.from || c.to) parts.push(`${c.from ? shortDate(c.from) : ''}〜${c.to ? shortDate(c.to) : ''}`);
+  if (c.category) parts.push(`種別：${c.category}`);
+  if (c.min !== null || c.max !== null) {
+    parts.push(`¥${c.min !== null ? yen.format(c.min) : ''}〜${c.max !== null ? '¥' + yen.format(c.max) : ''}`);
+  }
+  if (c.receiptOnly) parts.push('レシートあり');
+  return parts.join('　');
+}
+
+/** ひらがな/カタカナ・全角/半角・大文字/小文字の違いを吸収 */
+function normalizeText(s) {
+  return String(s || '').normalize('NFKC').toLowerCase()
+    .replace(/[ぁ-ゖ]/g, ch => String.fromCharCode(ch.charCodeAt(0) + 0x60))
+    .replace(/\s+/g, ' ');
+}
+
+function matchExpense(x, c) {
+  if (c.from && x.date < c.from) return false;
+  if (c.to && x.date > c.to) return false;
+  if (c.min !== null && x.amount < c.min) return false;
+  if (c.max !== null && x.amount > c.max) return false;
+  if (c.receiptOnly && !x.imageUrl) return false;
+  if (c.category) {
+    const cats = new Set([x.category, ...(x.items || []).map(it => it.category), ...(x.breakdown || []).map(b => b.category)]);
+    if (!cats.has(c.category)) return false;
+  }
+  if (c.keyword) {
+    const hay = normalizeText([x.store, x.memo, x.category, ...(x.items || []).map(it => it.name)].join(' '));
+    const words = normalizeText(c.keyword).split(' ').filter(Boolean);
+    if (!words.every(w => hay.includes(w))) return false; // スペース区切りはAND検索
+  }
+  return true;
+}
+
+/** 検索条件に合う明細（全件） */
+async function filteredExpenses(cond) {
+  const all = await fetchAllExpenses();
+  return cond ? all.filter(x => matchExpense(x, cond)) : all.slice();
+}
+
+/** renderList に渡せる形で検索結果を返す */
+async function searchExpenses() {
+  const hits = await filteredExpenses(state.search);
+  return {
+    items: hits.slice(0, state.searchLimit),
+    total: hits.length,
+    sum: hits.reduce((s, x) => s + (Number(x.amount) || 0), 0),
+    search: state.search
+  };
+}
+
+function toggleSearchForm(force) {
+  const form = $('#search-form');
+  const open = typeof force === 'boolean' ? force : form.classList.contains('hidden');
+  form.classList.toggle('hidden', !open);
+  $('#btn-search-toggle').setAttribute('aria-expanded', String(open));
+  if (open) { renderSearchCategoryOptions(); $('#s-keyword').focus(); }
+}
+
+async function onSearchSubmit(e) {
+  e.preventDefault();
+  const cond = readSearchForm();
+  if (isEmptySearch(cond)) { onSearchClear(); return; }
+  state.search = cond;
+  state.searchLimit = LIST_PAGE;
+  const btn = e.submitter || $('#search-form button[type="submit"]');
+  await withButton(btn, '検索中…', async () => {
+    try {
+      renderList(await searchExpenses());
+    } catch (err) {
+      if (err.code !== 'AUTH') toast(err.message, 'error');
+    }
+  });
+}
+
+async function onSearchClear() {
+  $('#search-form').reset();
+  renderSearchCategoryOptions();
+  if (!state.search) return;
+  state.search = null;
+  state.searchLimit = LIST_PAGE;
+  try {
+    renderList(await api('listExpenses', { limit: state.listLimit }));
+  } catch (err) {
+    if (err.code !== 'AUTH') toast(err.message, 'error');
+  }
+}
+
+/* =========================================================
+ * Excel出力（SheetJS をボタンを押した時だけ読み込む）
+ * ========================================================= */
+const XLSX_SRC = 'https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js';
+let xlsxLoading = null;
+
+function loadXlsxLib() {
+  if (window.XLSX) return Promise.resolve(window.XLSX);
+  if (!xlsxLoading) {
+    xlsxLoading = new Promise((resolve, reject) => {
+      const sc = document.createElement('script');
+      sc.src = XLSX_SRC;
+      sc.onload = () => window.XLSX ? resolve(window.XLSX) : reject(new Error('Excel出力の部品を読み込めませんでした。'));
+      sc.onerror = () => { xlsxLoading = null; reject(new Error('Excel出力の部品を読み込めませんでした。通信状況を確認してください。')); };
+      document.head.appendChild(sc);
+    });
+  }
+  return xlsxLoading;
+}
+
+function toDateCell(dateStr) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(dateStr || ''));
+  return m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : String(dateStr || '');
+}
+
+function fileStamp() {
+  const d = new Date();
+  const p = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}`;
+}
+
+async function onExportExcel(e) {
+  const btn = e.currentTarget;
+  await withButton(btn, '作成中…', async () => {
+    try {
+      const [XLSX, list] = await Promise.all([loadXlsxLib(), filteredExpenses(state.search)]);
+      if (!list.length) { toast('出力する明細がありません。', 'error'); return; }
+      list.sort((a, b) => a.date === b.date ? 0 : (a.date < b.date ? -1 : 1)); // 日付の古い順
+
+      // シート1：明細（1件1行）
+      const head = ['日付', '店名', 'メモ', '種別', '金額', '種別の内訳', '品目数', 'レシート画像'];
+      const rows = list.map(x => {
+        const parts = (x.breakdown && x.breakdown.length) ? x.breakdown : [{ category: x.category, amount: x.amount }];
+        return [
+          toDateCell(x.date), x.store || '', x.memo || '', x.category || '', Number(x.amount) || 0,
+          parts.length > 1 ? parts.map(p => `${p.category} ${p.amount}`).join(' / ') : '',
+          (x.items || []).length, x.imageUrl || ''
+        ];
+      });
+      const total = list.reduce((s, x) => s + (Number(x.amount) || 0), 0);
+      const ws1 = XLSX.utils.aoa_to_sheet([head, ...rows, [], ['合計', '', '', '', total]], { cellDates: true });
+      ws1['!cols'] = [{ wch: 12 }, { wch: 26 }, { wch: 24 }, { wch: 12 }, { wch: 11 }, { wch: 34 }, { wch: 7 }, { wch: 40 }];
+      rows.forEach((r, i) => {
+        const url = r[7];
+        if (url) {
+          const ref = XLSX.utils.encode_cell({ r: i + 1, c: 7 });
+          ws1[ref].l = { Target: url, Tooltip: 'レシート画像を開く' };
+          ws1[ref].v = 'レシート';
+        }
+      });
+      formatSheet(XLSX, ws1, { dateCol: 0, yenCols: [4] });
+      ws1['!autofilter'] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: rows.length, c: head.length - 1 } }) };
+
+      // シート2：品目（品目1つで1行）
+      const head2 = ['日付', '店名', '品目', '金額', '種別'];
+      const rows2 = [];
+      list.forEach(x => {
+        const items = x.items || [];
+        if (items.length) {
+          items.forEach(it => rows2.push([toDateCell(x.date), x.store || '', it.name || '', Number(it.price) || 0, it.category || x.category || '']));
+        } else {
+          rows2.push([toDateCell(x.date), x.store || '', x.memo || '（品目なし）', Number(x.amount) || 0, x.category || '']);
+        }
+      });
+      const ws2 = XLSX.utils.aoa_to_sheet([head2, ...rows2], { cellDates: true });
+      ws2['!cols'] = [{ wch: 12 }, { wch: 26 }, { wch: 30 }, { wch: 11 }, { wch: 12 }];
+      formatSheet(XLSX, ws2, { dateCol: 0, yenCols: [3] });
+      ws2['!autofilter'] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: rows2.length, c: head2.length - 1 } }) };
+
+      // シート3：種別ごとの合計
+      const byCat = new Map();
+      list.forEach(x => {
+        const parts = (x.breakdown && x.breakdown.length) ? x.breakdown : [{ category: x.category, amount: x.amount }];
+        parts.forEach(p => byCat.set(p.category, (byCat.get(p.category) || 0) + (Number(p.amount) || 0)));
+      });
+      const catRows = Array.from(byCat.entries()).sort((a, b) => b[1] - a[1])
+        .map(([c, v]) => [c, v, total > 0 ? v / total : 0]);
+      const ws3 = XLSX.utils.aoa_to_sheet([['種別', '金額', '割合'], ...catRows, [], ['合計', total, 1]]);
+      ws3['!cols'] = [{ wch: 14 }, { wch: 12 }, { wch: 8 }];
+      formatSheet(XLSX, ws3, { yenCols: [1], pctCols: [2] });
+
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws1, '明細');
+      XLSX.utils.book_append_sheet(wb, ws2, '品目');
+      XLSX.utils.book_append_sheet(wb, ws3, '種別ごとの合計');
+
+      const name = `家計簿_${state.search ? '検索結果' : '明細'}_${fileStamp()}.xlsx`;
+      XLSX.writeFile(wb, name, { compression: true });
+      toast(`${list.length}件をExcelに出力しました。`);
+    } catch (err) {
+      if (err.code !== 'AUTH') toast(err.message, 'error');
+    }
+  });
+}
+
+/** 日付・金額・割合の表示形式をセルに付ける */
+function formatSheet(XLSX, ws, { dateCol = -1, yenCols = [], pctCols = [] } = {}) {
+  const range = XLSX.utils.decode_range(ws['!ref']);
+  for (let r = 1; r <= range.e.r; r++) {
+    for (let c = 0; c <= range.e.c; c++) {
+      const cell = ws[XLSX.utils.encode_cell({ r, c })];
+      if (!cell) continue;
+      if (c === dateCol && cell.t === 'd') cell.z = 'yyyy/mm/dd';
+      if (yenCols.includes(c) && cell.t === 'n') cell.z = '"¥"#,##0';
+      if (pctCols.includes(c) && cell.t === 'n') cell.z = '0.0%';
+    }
+  }
+}
+
 /* =========================================================
  * 初期化
  * ========================================================= */
@@ -1568,8 +1837,13 @@ function bindEvents() {
   $('#period-custom').addEventListener('submit', onPeriodCustomSubmit);
 
   $('#btn-more').addEventListener('click', async () => {
-    state.listLimit += LIST_PAGE;
     try {
+      if (state.search) {
+        state.searchLimit += LIST_PAGE;
+        renderList(await searchExpenses());
+        return;
+      }
+      state.listLimit += LIST_PAGE;
       renderList(await api('listExpenses', { limit: state.listLimit }));
     } catch (err) {
       if (err.code !== 'AUTH') toast(err.message, 'error');
@@ -1577,6 +1851,10 @@ function bindEvents() {
   });
 
   $('#expense-list').addEventListener('click', onListClick);
+  $('#btn-search-toggle').addEventListener('click', toggleSearchForm);
+  $('#search-form').addEventListener('submit', onSearchSubmit);
+  $('#s-clear').addEventListener('click', onSearchClear);
+  $('#btn-export').addEventListener('click', onExportExcel);
   $('#file-camera').addEventListener('change', onFileSelected);
   $('#file-library').addEventListener('change', onFileSelected);
   $('#btn-add-item').addEventListener('click', () => addItemRow().querySelector('.item-name').focus());

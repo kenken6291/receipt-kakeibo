@@ -319,11 +319,58 @@
         </div>
 
         <div class="mt-14">
-          <div class="flex items-end justify-between">
-            <h2 class="text-lg font-bold">最近の明細</h2>
-            <p id="list-count" class="text-xs text-mute"></p>
+          <div class="flex items-end justify-between gap-2">
+            <h2 id="list-title" class="text-lg font-bold">最近の明細</h2>
+            <div class="flex items-center gap-2">
+              <button type="button" id="btn-search-toggle" aria-expanded="false" aria-controls="search-form" class="rounded-md border border-rule bg-white px-3 py-1.5 text-xs hover:border-ink">🔍 検索</button>
+              <button type="button" id="btn-export" class="rounded-md border border-rule bg-white px-3 py-1.5 text-xs hover:border-ink">📥 Excel出力</button>
+            </div>
           </div>
+
+          <!-- 明細の検索 -->
+          <form id="search-form" class="hidden mt-3 rounded-lg border border-rule bg-white p-4 space-y-3" autocomplete="off">
+            <div>
+              <label for="s-keyword" class="block text-xs text-mute mb-1">キーワード（店名・メモ・品目名）</label>
+              <input id="s-keyword" type="search" class="field" placeholder="例：AMAZON、駐車場、牛乳">
+            </div>
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label for="s-from" class="block text-xs text-mute mb-1">日付（から）</label>
+                <input id="s-from" type="date" class="field num">
+              </div>
+              <div>
+                <label for="s-to" class="block text-xs text-mute mb-1">日付（まで）</label>
+                <input id="s-to" type="date" class="field num">
+              </div>
+            </div>
+            <div class="grid grid-cols-2 gap-3">
+              <div class="col-span-2 sm:col-span-1">
+                <label for="s-category" class="block text-xs text-mute mb-1">種別</label>
+                <select id="s-category" class="field"></select>
+              </div>
+              <div class="col-span-2 sm:col-span-1 grid grid-cols-2 gap-2">
+                <div>
+                  <label for="s-min" class="block text-xs text-mute mb-1">金額（以上）</label>
+                  <input id="s-min" type="number" inputmode="numeric" min="0" class="field num" placeholder="¥">
+                </div>
+                <div>
+                  <label for="s-max" class="block text-xs text-mute mb-1">金額（以下）</label>
+                  <input id="s-max" type="number" inputmode="numeric" min="0" class="field num" placeholder="¥">
+                </div>
+              </div>
+            </div>
+            <label class="flex items-center gap-2 text-sm">
+              <input id="s-receipt" type="checkbox" class="h-4 w-4">レシート画像ありのみ
+            </label>
+            <div class="flex gap-2 pt-1">
+              <button type="submit" class="flex-1 rounded-lg bg-ink text-white py-2.5 text-sm font-medium">検索する</button>
+              <button type="button" id="s-clear" class="rounded-lg border border-rule bg-white px-4 py-2.5 text-sm">条件をクリア</button>
+            </div>
+          </form>
+          <p id="search-summary" class="hidden mt-3 rounded-lg bg-white border border-ai/40 px-3 py-2 text-sm"></p>
+
           <ul id="expense-list" class="mt-3 border-t border-rule"></ul>
+          <p id="search-empty" class="hidden py-10 text-center text-mute">条件に合う明細はありません。</p>
           <div id="list-empty" class="hidden py-10 text-center">
             <p class="text-mute">まだ支出が記録されていません。</p>
             <button type="button" data-nav="add" class="mt-4 rounded-lg bg-ink text-white px-5 py-2.5 text-sm font-medium">最初の支出を記録する</button>

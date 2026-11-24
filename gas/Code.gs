@@ -38,7 +38,7 @@ const APP = {
   MAX_IMAGE_BYTES: 7 * 1024 * 1024, // 受け付ける画像の上限（デコード後）
   LOGIN_MAX_FAILS: 5,               // 連続失敗でロック
   LOGIN_LOCK_SECONDS: 15 * 60,      // ロック時間
-  VERSION: 'v1.1.0'                 // GASバックエンドのバージョン（デプロイ時に更新）
+  VERSION: 'v1.2.0'                 // GASバックエンドのバージョン（デプロイ時に更新）
 };
 
 // 指定なし・該当なしの時に使う汎用最新モデル（先頭から順に試す）
@@ -1212,7 +1212,7 @@ function deleteExpense_(p, user) {
 }
 
 function listExpenses_(p, user) {
-  const limit = Math.min(Math.max(parseInt(p.limit, 10) || 20, 1), 500);
+  const limit = Math.min(Math.max(parseInt(p.limit, 10) || 20, 1), 5000);
   const month = /^\d{4}-\d{2}$/.test(String(p.month || '')) ? String(p.month) : '';
 
   let rows = readUserExpenses_(user.id);
